@@ -38,3 +38,11 @@ esp_err_t demo_ble_start(void); esp_err_t demo_ble_stop(void);
 void demo_low_power_enter(void); void demo_low_power_exit(void);
 void demo_low_power_key(bsp_btn_t btn, bsp_btn_ev_t ev);
 esp_err_t demo_low_power_start(void); esp_err_t demo_low_power_stop(void);
+
+void demo_passport_service_enter(void); void demo_passport_service_exit(void);
+void demo_passport_service_key(bsp_btn_t btn, bsp_btn_ev_t ev);
+esp_err_t demo_passport_service_start(void); esp_err_t demo_passport_service_stop(void);
+esp_err_t demo_passport_service_nfc_card(const char *card_id);
+void demo_did_tibo_rest_enter(void); void demo_did_tibo_rest_exit(void);
+void demo_did_tibo_rest_key(bsp_btn_t, bsp_btn_ev_t);
+esp_err_t demo_did_tibo_rest_start(void); esp_err_t demo_did_tibo_rest_stop(void);

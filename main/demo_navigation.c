@@ -4,6 +4,7 @@ void demo_navigation_init(demo_navigation_t *navigation, size_t count) {
     navigation->selected = 0;
     navigation->active = -1;
     navigation->count = count;
+    navigation->sticky = false;
 }
 
 demo_nav_result_t demo_navigation_handle(demo_navigation_t *navigation,
@@ -14,9 +15,11 @@ demo_nav_result_t demo_navigation_handle(demo_navigation_t *navigation,
 
     if (navigation->active >= 0) {
         result.index = (size_t)navigation->active;
-        result.action = input == DEMO_NAV_INPUT_OK_LONG
-                      ? DEMO_NAV_ACTION_EXIT
-                      : DEMO_NAV_ACTION_FORWARD;
+        if (input == DEMO_NAV_INPUT_OK_LONG && !navigation->sticky) {
+            result.action = DEMO_NAV_ACTION_EXIT;
+        } else {
+            result.action = DEMO_NAV_ACTION_FORWARD;
+        }
         return result;
     }
 
@@ -36,5 +39,8 @@ demo_nav_result_t demo_navigation_handle(demo_navigation_t *navigation,
 }
 
 void demo_navigation_complete_exit(demo_navigation_t *navigation) {
-    if (navigation) navigation->active = -1;
+    if (navigation) {
+        navigation->active = -1;
+        navigation->sticky = false;
+    }
 }

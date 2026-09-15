@@ -4,3 +4,6 @@ sdkconfig.old
 managed_components/
 .vscode/
 .idea/
+fonts/source/
+__pycache__/
+docs/superpowers/

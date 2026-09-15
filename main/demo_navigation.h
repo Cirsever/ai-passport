@@ -23,6 +23,7 @@ typedef struct {
     size_t selected;
     int active;
     size_t count;
+    bool sticky;
 } demo_navigation_t;
 
 typedef struct {

@@ -54,6 +54,26 @@ CI calls the same script. Fix the shared script or environment if local and CI b
 
 Hardware-affecting changes must also run the applicable on-device checklist in the hardware guide. Report compilation separately from physical-device validation.
 
+## CJK font coverage gate
+
+`./tools/validate.sh` (both `--static` and `--firmware`) parses the `--symbols`
+header baked into `main/fonts/ui_cn_16.c` and diffs it against every
+`0x4E00-0x9FFF` character present in `main/passport_ui_model.c` and
+`main/demo_passport_service.c`. Any character used by the UI but missing from
+the subset fails the gate with the exact list plus:
+
+```
+CJK glyphs missing from ui_cn_16 subset: ...
+Run ./tools/gen_cjk_font.sh to rebuild the font.
+```
+
+Missing glyphs render as empty squares on the physical device, so this is a
+build gate rather than a hardware check. When editing UI strings, either add
+the new characters to the manual pool inside `tools/collect_ui_glyphs.py` or
+just rerun `./tools/gen_cjk_font.sh`; either path regenerates
+`main/fonts/ui_cn_16.c` from `fonts/source/AlibabaPuHuiTi-Regular.ttf` and
+lets the gate go green.
+
 Never upload the app-only `build/FoloToy-AI-Passport.bin` to the community. Only
 the validated `build/FoloToy-AI-Passport-full.bin` contains the complete checked
 firmware layout.

@@ -17,6 +17,22 @@ This directory contains AI Passport engineering rules and reusable workflows, gr
 - [firmware-layout.md](engineering/firmware-layout.md): default and user-defined partition layouts and merged-artifact validation.
 - [coding-conventions.md](engineering/coding-conventions.md): source-code and resource conventions.
 
+## Software architecture
+
+- [passport-service-architecture.md](passport-service-architecture.md): Passport Service boundaries, protocol, state model, and real NFC/IDE integration gates.
+- [passport-service-status.md](passport-service-status.md): latest measured Passport flash, boot, validation, and known-boundary record.
+- [passport-service-todo.md](passport-service-todo.md): authoritative continuation checklist for the Passport Service MVP.
+- [physical-skills-mvp-design.md](physical-skills-mvp-design.md): Slice F Physical Skills MVP — Wear and Compose page design, protocol additions, and gesture additions.
+- [ide-adapter-decision.md](ide-adapter-decision.md): Slice C decision record — Codex is the first local IDE adapter; Trae deferred.
+- [nfc-path-decision.md](nfc-path-decision.md): Slice D decision record — phone-to-Bridge relay is the first NFC path; external reader deferred.
+- [softap-fallback-decision.md](softap-fallback-decision.md): SoftAP + TCP fallback stays in-tree but off by default.
+
+## Exploratory ideas
+
+- [did-tibo-rest-idea.md](did-tibo-rest-idea.md): exploratory product idea for
+  Tibo push reminders and Codex level controls on AI Passport; the current
+  prototype is explicitly not the implementation baseline.
+
 ## CI
 
 - [CI-validation.md](ci/CI-validation.md): pull-request and main-branch checks.

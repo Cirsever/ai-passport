@@ -52,5 +52,24 @@ cc -std=c11 -Wall -Wextra -Werror -Imain \
 
 涉及物理外设的改动必须在真机运行硬件指南验收清单，并把“编译通过”与“硬件验证通过”分开记录。
 
+## CJK 字体覆盖门禁
+
+`./tools/validate.sh`（`--static` 与 `--firmware` 都会跑）会解析
+`main/fonts/ui_cn_16.c` 头部的 `--symbols` 注释，与
+`main/passport_ui_model.c` 和 `main/demo_passport_service.c` 中出现的所有
+`0x4E00-0x9FFF` 字符做差集。任何 UI 里用到、字体子集里缺失的字符会让门禁
+直接失败，并输出：
+
+```
+CJK glyphs missing from ui_cn_16 subset: ...
+Run ./tools/gen_cjk_font.sh to rebuild the font.
+```
+
+缺字在实机上表现为空白方块，代码 review 很难发现却会强制硬件重试，因此
+放在构建门禁而不是实机验收里。修改 UI 文案后，要么把新字加入
+`tools/collect_ui_glyphs.py` 的手工池，要么直接跑
+`./tools/gen_cjk_font.sh` 从 `fonts/source/AlibabaPuHuiTi-Regular.ttf`
+重新生成 `main/fonts/ui_cn_16.c`，门禁即可通过。
+
 社区只能上传验证通过的 `build/FoloToy-AI-Passport-full.bin`，不得上传应用单镜像
 `build/FoloToy-AI-Passport.bin`，后者不包含完整且经校验的固件布局。

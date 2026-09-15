@@ -10,7 +10,9 @@
 #include "bsp_audio.h"
 #include "bsp_battery.h"
 #include "bsp_pins.h"      // 错误日志里要打印 BSP_LCD_* 引脚号
+#include "app_startup.h"
 #include "demo.h"
+#include "demo_did_tibo_rest.h"
 #include "demo_navigation.h"
 #include "ui_pixel.h"
 #include "lvgl.h"
@@ -37,6 +39,12 @@ static const demo_entry_t DEMOS[] = {
       .key = demo_ble_key, .start = demo_ble_start, .stop = demo_ble_stop },
     { .name = "Low Power", .enter = demo_low_power_enter, .exit = demo_low_power_exit,
       .key = demo_low_power_key, .start = demo_low_power_start, .stop = demo_low_power_stop },
+    { .name = "Passport Service", .enter = demo_passport_service_enter,
+      .exit = demo_passport_service_exit, .key = demo_passport_service_key,
+      .start = demo_passport_service_start, .stop = demo_passport_service_stop },
+    { .name = "DidTiboRest", .enter = demo_did_tibo_rest_enter,
+      .exit = demo_did_tibo_rest_exit, .key = demo_did_tibo_rest_key,
+      .start = demo_did_tibo_rest_start, .stop = demo_did_tibo_rest_stop },
 };
 #define DEMO_COUNT (sizeof(DEMOS) / sizeof(DEMOS[0]))
 #define INPUT_QUEUE_DEPTH 8
@@ -92,6 +100,25 @@ static void enter_menu(void) {
     menu_build();
 }
 
+static void enter_demo_locked(size_t index) {
+    const demo_entry_t *demo = &DEMOS[index];
+    if (s_menu_scr) {
+        lv_obj_delete(s_menu_scr);
+        s_menu_scr = NULL;
+        s_mascot = NULL;
+    }
+    s_navigation.active = (int)index;
+    demo->enter();
+}
+
+static void start_demo(size_t index) {
+    const demo_entry_t *demo = &DEMOS[index];
+    esp_err_t e = demo->start ? demo->start() : ESP_OK;
+    if (e != ESP_OK) {
+        ESP_LOGE(TAG, "%s 页面启动失败: %s", demo->name, esp_err_to_name(e));
+    }
+}
+
 static demo_nav_input_t navigation_input(bsp_btn_t btn, bsp_btn_ev_t event) {
     if (event == BSP_BTN_LONG && btn == BSP_BTN_OK) return DEMO_NAV_INPUT_OK_LONG;
     if (event != BSP_BTN_CLICK) return DEMO_NAV_INPUT_OTHER;
@@ -132,18 +159,10 @@ static void process_input(const input_event_t *input) {
         menu_refresh();
         ui_pixel_mascot_jump(s_mascot);
     } else if (result.action == DEMO_NAV_ACTION_ENTER) {
-        const demo_entry_t *demo = &DEMOS[result.index];
         ui_pixel_mascot_jump(s_mascot);
-        lv_obj_delete(s_menu_scr);
-        s_menu_scr = NULL;
-        s_mascot = NULL;
-        demo->enter();
+        enter_demo_locked(result.index);
         bsp_lvgl_unlock();
-
-        esp_err_t e = demo->start ? demo->start() : ESP_OK;
-        if (e != ESP_OK) {
-            ESP_LOGE(TAG, "%s 页面启动失败: %s", demo->name, esp_err_to_name(e));
-        }
+        start_demo(result.index);
         return;
     }
     bsp_lvgl_unlock();
@@ -230,10 +249,25 @@ void app_main(void) {
     s_ok[4] = true;                                    // 页面内按需初始化并显示错误
     s_ok[5] = true;
     s_ok[6] = true;
+    s_ok[7] = true;                                   // Passport Service transport is optional
+    s_ok[8] = true;                                   // DidTiboRest transport is optional
 
     if (bsp_lvgl_lock(1000)) {
-        enter_menu();
-        bsp_lvgl_unlock();
+        app_startup_demo_t initial_demo = app_startup_initial_demo();
+        if (initial_demo == APP_STARTUP_PASSPORT_SERVICE ||
+            initial_demo == APP_STARTUP_DID_TIBO_REST) {
+            const size_t index = initial_demo == APP_STARTUP_DID_TIBO_REST
+                               ? DEMO_COUNT - 1 : DEMO_COUNT - 2;
+            enter_demo_locked(index);
+            /* Boot-selected product page owns OK long-press (voice / level).
+             * Do not let the demo shell interpret it as "exit to menu". */
+            s_navigation.sticky = (initial_demo == APP_STARTUP_PASSPORT_SERVICE);
+            bsp_lvgl_unlock();
+            start_demo(index);
+        } else {
+            enter_menu();
+            bsp_lvgl_unlock();
+        }
         s_input_ready = true;
     }
 
