@@ -32,6 +32,7 @@
 - 下载（烧录）新固件无需备份设备内原有固件，不得把读取 Flash 备份作为前置条件。这不保证保留用户数据，也不授权全片擦除；遵循[烧录与数据说明](docs/development/engineering/firmware-layout.zh_CN.md#烧录与已存数据)。
 - 硬件事实优先级：产品规格与实测结果 → `components/bsp/include/bsp_pins.h` → BSP 头文件与实现 → 硬件指南 → README/demo。任务所需硬件细节未在这些来源中定义时，直接询问用户，不得猜测。
 - 可复用板级逻辑放入 `components/bsp`；页面、状态机、动画和应用任务放入 `main`。
+- 二次开发应用必须重新设计并实现独立 UI，禁止沿用当前 demo 测试菜单、页面或界面外壳；仅改名、换颜色或在原界面增加功能不算重新设计。BSP API 和非 UI 逻辑仍可复用。详见[二次开发 UI 强制重新设计规则](docs/development/ai-guide.zh_CN.md#二次开发-ui-强制重新设计)。
 - LVGL 非线程安全。LVGL 任务之外访问 LVGL 对象时必须持有 `bsp_lvgl_lock()`。
 - 添加中文 UI 前必须遵循[字体检查清单](docs/development/engineering/coding-conventions.zh_CN.md#中文字体与缺字排查)。默认 Montserrat 字体不含中文字形；UTF-8 正确、编译成功均不代表能够显示中文。必须核对字形覆盖、控件实际字体并完成真机显示验收。
 - 按键回调不得阻塞。音频、存储、网络等慢操作必须放入工作任务。

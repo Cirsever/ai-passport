@@ -27,8 +27,11 @@ documents. Start with `git status --short --branch`.
    starting point. If work overlaps or branch choice is ambiguous, resolve it
    with the user. Do not commit, push, or publish without authorization.
 3. Consult relevant demo branches and `docs/reference/README.md`. Extract the
-   needed patterns, not whole branches or their stale BSP/configuration. Design
-   the application's own UI rather than shipping the baseline demo screens.
+   needed patterns, not whole branches or their stale BSP/configuration. Apply
+   the AI guide's mandatory UI redesign rule: derivative applications must have
+   their own screens and interactions, never the current demo test menu, screens,
+   or visual shell. Renaming or recoloring that shell is not a redesign. Reuse
+   BSP APIs and isolated logic; do not rewrite drivers just to change the UI.
 4. Implement the smallest complete behavior with tests for pure logic. Keep
    application state/tasks in `main` and reuse the BSP. Apply the existing LVGL
    locking, callback, teardown, RAM, and configurable-partition rules. Consult
@@ -54,7 +57,9 @@ to invoke a skill unavailable to the current agent.
 ## Handoff and continuation
 
 Report implemented behavior, actual validation, remaining checks, and the next
-step. For a multi-stage task, keep a concise checkpoint in the application's
+step. Describe the redesigned pages and controls, and check that startup and
+navigation no longer lead to the baseline test UI before calling the application
+complete. For a multi-stage task, keep a concise checkpoint in the application's
 existing project notes: accepted requirements, completed/pending work, exact
 build identity, and device results. If new maintained Markdown is warranted,
 use paired documents under `docs/`; never store secrets or raw private logs.
