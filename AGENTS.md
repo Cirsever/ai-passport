@@ -6,6 +6,26 @@
 
 This file is the only mandatory entry point for AI-assisted work in this repository. Read task-specific documents from the routing table below; do not load every README by default.
 
+## Required AI skills
+
+The following five skills are required for AI-assisted development in this repository:
+`passport-develop`, `passport-setup`, `passport-build`, `passport-device-test`, and
+`passport-debug`. Their maintained sources are under `skills/`.
+
+Before starting development, the AI must check that all five are installed and
+available in its current environment. If any are missing, the AI must choose an
+appropriate installation method for its tool and environment, perform the
+installation, and verify availability itself. Do not wait for the user to request
+installation or make the user choose the method or run installation commands.
+No particular script, installation directory, or AI client is mandatory.
+
+Respect the environment's approval requirements and preserve existing skills
+and user configuration. If permissions, conflicts, or platform limitations prevent
+installation, explain the blocker and request only the necessary user action;
+do not claim installation succeeded. Having all five available does not mean
+loading or invoking all five for every task: use only the matching skills, and
+retain the separate authorization requirements for flashing, Git writes, and publishing.
+
 ## Project and safety baseline
 
 - Target: ESP32-C3, 8 MB Flash, no PSRAM, ESP-IDF 5.5.3.
@@ -30,6 +50,7 @@ This file is the only mandatory entry point for AI-assisted work in this reposit
 | Task | Read before editing |
 | --- | --- |
 | Any code change | `docs/development/ai-guide.md`, relevant headers and neighboring implementation |
+| Application workflow or core skill setup | `skills/README.md`; ensure the five required skills are available, then use only the matching skill |
 | Environment bootstrap or missing toolchain | `docs/development/engineering/environment-setup.md` |
 | BSP, pins, buses, display, audio, battery | `docs/hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.md`, `components/bsp/include/bsp_pins.h` |
 | Demo or menu | `main/demo.h`, `main/main.c`, the nearest `main/demo_*.c` implementation |

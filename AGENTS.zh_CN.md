@@ -6,6 +6,22 @@
 
 本文是本仓库 AI 辅助工作的唯一必读入口。根据下方路由表读取当前任务所需文档，不要默认加载全部 README。
 
+## 必需 AI 技能
+
+以下五个技能是本仓库 AI 辅助开发的必需项：`passport-develop`、
+`passport-setup`、`passport-build`、`passport-device-test`、`passport-debug`。
+技能权威源文件位于 `skills/`。
+
+开始开发前，AI 必须自行检查这五个技能是否已在当前环境安装并可用。缺少时，
+由 AI 根据所用工具和环境，自行选择合适的安装方式、完成安装并验证可用性。
+不等待用户另外提出安装要求，也不把选择安装方式或执行安装命令交给用户。
+不强制使用特定脚本、安装目录或 AI 客户端。
+
+安装必须遵守环境的权限审批要求，保留已有技能和用户配置。权限、冲突或平台
+限制导致无法安装时，说明阻碍，只请求必要的用户配合，不得谎报安装成功。
+五个技能必须可用，不代表每次任务都加载或调用全部技能；只使用匹配当前任务
+的技能。烧录、Git 写操作和发布仍须分别取得相应授权。
+
 ## 项目与安全基线
 
 - 目标平台：ESP32-C3、8 MB Flash、无 PSRAM、ESP-IDF 5.5.3。
@@ -29,6 +45,7 @@
 | 任务 | 修改前读取 |
 | --- | --- |
 | 任意代码修改 | `docs/development/ai-guide.zh_CN.md`、相关头文件和相邻实现 |
+| 应用工作流或核心技能配置 | `skills/README.zh_CN.md`；确认五个必需技能可用，再使用匹配当前任务的技能 |
 | 环境引导或缺少工具链 | `docs/development/engineering/environment-setup.zh_CN.md` |
 | BSP、引脚、总线、显示、音频、电池 | `docs/hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.zh_CN.md`、`components/bsp/include/bsp_pins.h` |
 | Demo 或菜单 | `main/demo.h`、`main/main.c`、最近的 `main/demo_*.c` 实现 |
