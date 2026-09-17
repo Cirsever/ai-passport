@@ -44,13 +44,13 @@ FoloToy AI Passport 是一个开放式可穿戴 AI 硬件，本仓库是这款 A
 请为 FoloToy AI Passport 开发一个离线习惯打卡应用。
 使用三个实体按键和 240×320 屏幕，记录保存在掉电不丢失的存储中。
 从 `main` 开始，创建 `feature/*` 分支并在该分支上开发。
-遵守 AGENTS.md 和 docs/hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.md；先查找相关 demo 分支与 plays/ 应用，
+遵守 AGENTS.md 和 docs/hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.md；先查找相关 demo 分支与 docs/reference/ 应用档案，
 保持硬件逻辑在 components/bsp、应用逻辑在 main，完成可运行实现与测试，
 最后分别报告构建结果、未执行的真机项目和逐项验收方法。
 必须重新设计应用 UI，禁止使用当前 demo 测试菜单和页面。
 ```
 
-开始前先看 [`reference/`](reference/README.zh_CN.md) 有没有已存在或可参考的应用、以及已沉淀、可复用的经验，再配合相关 demo 分支。
+开始前先看 [`docs/reference/`](reference/README.zh_CN.md) 有没有已存在或可参考的应用、以及已沉淀、可复用的经验，再配合相关 demo 分支。
 这些列出了已经构建好、可复用的东西。
 
 需求越具体，AI 助手越容易一次实现正确。建议说明：
@@ -105,7 +105,7 @@ tools/                   本地与 CI 共用的验证及固件校验脚本
 docs/                    项目说明、变更记录、工程/协作规范与设计参考
 .github/                 GitHub 社区文档、PR 模板、Issue Form 与 CI 工作流
 sdkconfig.defaults       ESP32-C3、USB console、Flash、LVGL 默认配置
-partitions.csv           应用与设备身份保护分区布局
+partitions.csv           最简默认分区：NVS、PHY data 和单个 factory 应用
 dependencies.lock        可复现的 ESP-IDF Managed Component 解析结果
 AGENTS.md                AI agent 必读入口（与 AGENTS.zh_CN.md 配对）
 CLAUDE.md                Claude Code 指向 AGENTS.md 的入口（含中文配对）
@@ -119,7 +119,7 @@ LICENSE                  仓库许可证
 - [`docs/development/`](development/README.zh_CN.md) — 工程规则与可复用工作流：`ai-guide.md`、`engineering/`、`ci/`、`release/` 区。其 README 列明它们。
 - [`docs/contribution/`](contribution/README.zh_CN.md) — 协作、文档与提交/PR 约定。
 - [`docs/hardware-design/`](hardware-design/README.zh_CN.md) — 板卡事实、约束、验收矩阵与排障。
-- [`docs/reference/`](reference/README.zh_CN.md) — 参考资料：按贡献者（`reference/<username>/`）组织可复用开发经验与已归档应用于册。
+- [`docs/reference/`](reference/README.zh_CN.md) — 参考资料：按贡献者（相对仓库根目录的 `docs/reference/<username>/`）组织可复用开发经验与已归档应用档案。
 - [`docs/brand/`](brand/README.zh_CN.md) — 公开品牌与产品语言（`brand-and-product.zh_CN.md`）与官方产品视觉参考。
 - [`docs/`](README.zh_CN.md) 顶层 — [`CHANGELOG.zh_CN.md`](CHANGELOG.zh_CN.md)、[`brand-and-product.zh_CN.md`](brand/brand-and-product.zh_CN.md)、[`fork-guide.zh_CN.md`](fork-guide.zh_CN.md)。
 
