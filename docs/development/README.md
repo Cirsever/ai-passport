@@ -25,6 +25,7 @@ This directory contains AI Passport engineering rules and reusable workflows, gr
 - [passport-service-status.md](passport-service-status.md): latest measured Passport flash, boot, validation, and known-boundary record.
 - [passport-service-todo.md](passport-service-todo.md): authoritative continuation checklist for the Passport Service MVP.
 - [physical-skills-mvp-design.md](physical-skills-mvp-design.md): Slice F Physical Skills MVP — Wear and Compose page design, protocol additions, and gesture additions.
+- [nfc-skill-card-design.md](nfc-skill-card-design.md): writable NFC Skill card schema, Passport Host Service ownership, free NFC Tools MVP flow, and GitHub-backed Version 2 direction.
 - [ide-adapter-decision.md](ide-adapter-decision.md): Slice C decision record — Codex is the first local IDE adapter; Trae deferred.
 - [nfc-path-decision.md](nfc-path-decision.md): Slice D decision record — phone-to-Bridge relay is the first NFC path; external reader deferred.
 - [softap-fallback-decision.md](softap-fallback-decision.md): SoftAP + TCP fallback stays in-tree but off by default.

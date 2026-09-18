@@ -34,6 +34,7 @@
 - [passport-service-status.zh_CN.md](passport-service-status.zh_CN.md)：最近一次 Passport 烧录、启动、验证结果和当前边界记录。
 - [passport-service-todo.zh_CN.md](passport-service-todo.zh_CN.md)：Passport Service MVP 的唯一后续开发清单。
 - [physical-skills-mvp-design.zh_CN.md](physical-skills-mvp-design.zh_CN.md)：切片 F Physical Skills MVP —— Wear 与 Compose 页面设计、协议扩展和按键手势补充。
+- [nfc-skill-card-design.zh_CN.md](nfc-skill-card-design.zh_CN.md)：可写 NFC Skill 卡协议、Passport Host Service 归属、免费版 NFC Tools MVP 流程和 V2 GitHub 来源方案。
 - [ide-adapter-decision.zh_CN.md](ide-adapter-decision.zh_CN.md)：切片 C 决策记录 —— 第一个本地 IDE 适配器选 Codex，Trae 暂缓。
 - [nfc-path-decision.zh_CN.md](nfc-path-decision.zh_CN.md)：切片 D 决策记录 —— NFC 输入首选手机→Bridge 中继，外置 Reader 暂缓。
 - [softap-fallback-decision.zh_CN.md](softap-fallback-decision.zh_CN.md)：SoftAP + TCP 备用链路保留代码但默认不启用。
