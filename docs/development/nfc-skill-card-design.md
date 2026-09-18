@@ -99,6 +99,8 @@ flowchart TD
         A6{IDE and mode are available?}
         A7[Skill Registry resolves Skill ID]
         A8{Skill is installed and unambiguous?}
+        UI1[Host emits a bounded card.validation failure reason]
+        UI2[Passport shows the CARD.INVALID pixel prompt<br/>and preserves the pre-scan screen]
         E2([Stop: card.invalid or unsupported version])
         E3([Stop: ide.not_found or mode.unsupported])
         E4([V1 stop: skill.not_found or skill.conflict])
@@ -147,7 +149,7 @@ flowchart TD
     P6 -- No --> E1
     P6 -- Yes --> CARD --> A1
     A1 --> A2 --> A3 --> A4
-    A4 -- No --> E2
+    A4 -- No --> UI1 --> UI2 --> E2
     A4 -- Yes --> A5 --> A6
     A6 -- No --> E3
     A6 -- Yes --> A7 --> A8
@@ -303,17 +305,64 @@ This is intentionally a manual acceptance path. Automatic scanning and relay fro
 
 ## Errors are product states
 
-| Code | User-facing result |
-| --- | --- |
-| `card.invalid` | The record is malformed or has unsupported characters. |
-| `card.unsupported_version` | Passport Host Service cannot handle the card schema. |
-| `ide.not_found` | The selected IDE adapter is not installed or available. |
-| `mode.unsupported` | The installed adapter does not support the card's mode. |
-| `skill.not_found` | The Skill is not installed locally. |
-| `skill.conflict` | More than one local Skill claims the same ID. |
-| `card.capacity_exceeded` | The encoded NDEF record will not fit the target card. |
+Card Codec first answers whether this is a recognizable AI Passport card.
+Capability Catalog and Skill Registry answer whether the local computer can run
+it only after that schema check passes. These failures are intentionally
+separate: one means the card protocol is invalid; the other means the card is
+valid but this computer does not yet have the requested capability.
 
-Failures do not fall back to a different IDE, mode, or Skill. The configurator and Passport UI should show the same bounded reason.
+### Recognition and interception order
+
+1. Card Ingress accepts and normalizes one NDEF Text record. An empty record,
+   conflicting Text records, or content over the ingress limit never reaches
+   IDE resolution.
+2. Card Codec validates the `aip:` prefix, version, required fields, field
+   uniqueness, allowed characters, length, and unknown-field policy. Failure
+   stops immediately and cannot create a Runtime Orchestrator request.
+3. IDE, mode, and Skill resolution begins only after schema validation. These
+   are capability errors and must not use the “wrong card” prompt.
+4. Device Gateway sends a reason enum, never raw NDEF. The device presents
+   `CARD.INVALID` and restores the pre-scan screen after 4 seconds or dismissal.
+
+| Code | Bounded reason | Passport prompt | Result |
+| --- | --- | --- | --- |
+| `card.invalid` | `empty` / `not_aip` | “Oops, this card doesn't look quite right” / “Not an AI Passport card” | Do not start an IDE or change the current session |
+| `card.invalid` | `malformed` | “Oops, this card doesn't look quite right” / “Card setup is incomplete” | Do not create an execution request |
+| `card.unsupported_version` | `unsupported_version` | “Oops, this card doesn't look quite right” / “Is this card from the future?” | Suggest updating Host Service; do not guess a downgrade |
+| `ide.not_found` | `ide_unavailable` | “This IDE isn't ready yet” | Card is valid; retain the previous session |
+| `mode.unsupported` | `mode_unavailable` | “This mode isn't available yet” | Card is valid; do not silently switch mode |
+| `skill.not_found` | `skill_missing` | “This Skill hasn't moved into your computer yet” | Stop in Version 1; only Version 2 may enter installation |
+| `skill.conflict` | `skill_conflict` | “Two Skills answered to the same name” | Resolve the conflict on the PC |
+| `card.capacity_exceeded` | `too_large` | Configurator says “This card can't hold all that” | Pre-write error; do not send it to the device |
+
+The Host sends a bounded device message. Exact field names may be aligned with
+the final wire contract, but the semantics must remain stable:
+
+```json
+{
+  "type": "card.validation",
+  "state": "invalid",
+  "reason": "malformed",
+  "card_id": "display-only-debounced-id"
+}
+```
+
+`state` accepts only `accepted`, `invalid`, or `unsupported`; `reason` must be a
+negotiated enum. An unknown enum uses the generic `malformed` copy instead of
+rendering an arbitrary server string. `card_id` exists only for display
+correlation and the 1.5-second debounce window; it never authorizes execution.
+
+An invalid-card event is a read-only overlay. It does not change the card stack,
+selected session, task snapshot, Goal, Skill binding, or route epoch. OK only
+dismisses and re-arms the waiting state; it cannot synthesize a new read. Retry
+requires a fresh phone-relay or reader event. Duplicate reports for the same
+card inside the debounce window do not restart the animation.
+
+Display priority is approval, recording, invalid-card feedback, switching, then
+ordinary navigation. An invalid-card notice queues behind approval or recording
+instead of covering a decision or recording result. No failure silently falls
+back to another IDE, mode, or Skill. The configurator, Host log, and Passport
+screen use the same bounded reason.
 
 ## Version 2 remote Skill source
 

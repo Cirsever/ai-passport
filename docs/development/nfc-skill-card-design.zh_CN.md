@@ -99,6 +99,8 @@ flowchart TD
         A6{IDE 和模式当前是否可用？}
         A7[Skill Registry 解析 Skill ID]
         A8{Skill 是否已安装且没有 ID 冲突？}
+        UI1[Host 发送有界的 card.validation 失败原因]
+        UI2[Passport 显示 CARD.INVALID 像素提示，<br/>保留扫码前页面]
         E2([结束：card.invalid 或版本不支持])
         E3([结束：ide.not_found 或 mode.unsupported])
         E4([V1 结束：skill.not_found 或 skill.conflict])
@@ -147,7 +149,7 @@ flowchart TD
     P6 -- 否 --> E1
     P6 -- 是 --> CARD --> A1
     A1 --> A2 --> A3 --> A4
-    A4 -- 否 --> E2
+    A4 -- 否 --> UI1 --> UI2 --> E2
     A4 -- 是 --> A5 --> A6
     A6 -- 否 --> E3
     A6 -- 是 --> A7 --> A8
@@ -303,17 +305,54 @@ MVP 不生成 NFC Tools 导入包。免费版里普通的文本记录写入流�
 
 ## 错误也要成为明确状态
 
-| 错误码 | 用户看到的结果 |
-| --- | --- |
-| `card.invalid` | 记录格式错误，或者包含不支持的字符。 |
-| `card.unsupported_version` | 当前 Passport Host Service 不支持这张卡的协议版本。 |
-| `ide.not_found` | 对应 IDE 适配器未安装或当前不可用。 |
-| `mode.unsupported` | 当前适配器不支持卡里指定的模式。 |
-| `skill.not_found` | 本机没有安装对应 Skill。 |
-| `skill.conflict` | 多个本机 Skill 使用了同一个 ID。 |
-| `card.capacity_exceeded` | 编码后的 NDEF 记录放不进目标卡。 |
+Card Codec 必须先判断“是不是一张可识别的 AI Passport 卡”，确认协议合法后，
+Capability Catalog 和 Skill Registry 才能判断本机能不能执行。两类失败不能混在一起：
+前者说明卡片协议不对，后者说明卡片有效、但电脑还没准备好对应能力。
 
-失败时不能静默换用别的 IDE、模式或 Skill。配置器与 Passport 屏幕应展示同一个有界原因。
+### 识别与拦截顺序
+
+1. Card Ingress 只负责接收并归一化一条 NDEF Text 记录。空记录、多条互相冲突的
+   Text 记录，以及超过入口限制的内容，都不会进入 IDE 解析。
+2. Card Codec 校验 `aip:` 前缀、版本、必填字段、字段唯一性、允许字符、长度和
+   未知字段策略。校验失败后立即停止，不能创建 Runtime Orchestrator 请求。
+3. 只有协议校验成功后，才解析 IDE、模式和 Skill。这里的失败属于能力错误，
+   不能使用“卡片不对”的提示。
+4. Device Gateway 只发送原因枚举，不发送原始 NDEF。设备显示 `CARD.INVALID`，
+   4 秒后或用户返回后恢复扫码前页面。
+
+| 错误码 | 有界原因 | Passport 主提示 | 处理结果 |
+| --- | --- | --- | --- |
+| `card.invalid` | `empty` / `not_aip` | “哎呦，这张卡好像不太对哦”／“不是 AI Passport 卡” | 不启动 IDE，不改变当前会话 |
+| `card.invalid` | `malformed` | “哎呦，这张卡好像不太对哦”／“卡片内容没写完整” | 不创建执行请求 |
+| `card.unsupported_version` | `unsupported_version` | “哎呦，这张卡好像不太对哦”／“这张卡来自未来？” | 提示升级 Host Service，不做降级猜测 |
+| `ide.not_found` | `ide_unavailable` | “这个 IDE 还没准备好” | 卡片有效；保留原会话 |
+| `mode.unsupported` | `mode_unavailable` | “这个模式暂时不会” | 卡片有效；不静默换模式 |
+| `skill.not_found` | `skill_missing` | “这项技能还没住进电脑里” | V1 停止；V2 才能进入安装分支 |
+| `skill.conflict` | `skill_conflict` | “这项技能有两个同名伙伴” | 要求在 PC 端消除冲突 |
+| `card.capacity_exceeded` | `too_large` | 配置页提示“这张卡装不下” | 这是写卡前错误，不发送到设备 |
+
+Host 到设备使用有界消息；字段名可以随正式线协议调整，但语义不能漂移：
+
+```json
+{
+  "type": "card.validation",
+  "state": "invalid",
+  "reason": "malformed",
+  "card_id": "display-only-debounced-id"
+}
+```
+
+`state` 只接受 `accepted`、`invalid`、`unsupported`；`reason` 必须来自协商后的
+枚举。未知枚举按通用 `malformed` 文案显示，不能把服务端字符串直接绘制到屏幕。
+`card_id` 只用于显示关联和 1.5 秒去抖，不能授权执行。
+
+非法卡事件是只读覆盖层：不修改卡组、选中会话、任务快照、Goal、Skill 绑定或
+路由代次。确认键只关闭提示并重新进入等待状态，不能伪造一次新的读卡；必须收到
+新的手机中继或 Reader 事件才能重试。相同卡片在去抖窗口内重复上报，不重启动画。
+
+显示优先级为审批、录音、非法卡提示、切换事务、普通导航。审批或录音进行时，
+非法卡提示排队，不能覆盖决定或录音反馈。无论哪类失败，都不能静默换用别的 IDE、
+模式或 Skill；配置器、Host 日志和 Passport 屏幕必须使用同一个有界原因。
 
 ## V2 绑定远程 Skill 来源
 
