@@ -28,6 +28,8 @@
 
 ## 软件架构
 
+- [passport-pixel-ui-design.zh_CN.md](passport-pixel-ui-design.zh_CN.md)：当前 v2 视觉设计，包含 24 个界面预览、操作确认卡、图形电量、会话路由和 P1 桌面宠物同步。
+- [passport-v2-protocol.zh_CN.md](passport-v2-protocol.zh_CN.md)：会话路由、审批回执和自动伙伴传输的 v2 通信契约。
 - [passport-service-architecture.zh_CN.md](passport-service-architecture.zh_CN.md)：Passport Service 边界、协议、状态模型以及真实 NFC/IDE 接入门禁。
 - [passport-service-status.zh_CN.md](passport-service-status.zh_CN.md)：最近一次 Passport 烧录、启动、验证结果和当前边界记录。
 - [passport-service-todo.zh_CN.md](passport-service-todo.zh_CN.md)：Passport Service MVP 的唯一后续开发清单。

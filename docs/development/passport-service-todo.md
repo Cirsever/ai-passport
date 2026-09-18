@@ -32,9 +32,12 @@ Last evidence: [`passport-service-status.md`](passport-service-status.md)
 - [ ] Test one real phone/card event end to end. Needs operator: pair the
   chosen relay flavour with a real phone tap; acceptance is one
   `goal.mode.request` per unique UID, second UID rejected on the wire.
-- [x] Select the first local IDE adapter: Codex (see
-  [`ide-adapter-decision.md`](ide-adapter-decision.md)). Trae is deferred
-  until it exposes a scriptable local control surface.
+- [x] Pick the first local IDE adapter: Codex (decision recorded in
+  [`ide-adapter-decision.md`](ide-adapter-decision.md)). A minimal
+  fire-and-forget Trae adapter (`tools/trae_adapter.py`, `passport_bridge.py
+  --trae`) also ships; it makes no bidirectional / approval / session
+  persistence guarantees and covers only the "tap card → open Trae Chat
+  window → append utterance" loop. Production path stays on Codex.
 - [x] Implement the adapter contract for `goal.mode.state`, task progress,
   and session identity via `tools/codex_adapter.py` (MCP `tools/call codex`
   + `codex-reply`, host tests in `tests/test_codex_adapter.py`). Approval
@@ -45,10 +48,23 @@ Last evidence: [`passport-service-status.md`](passport-service-status.md)
   device-side `@passport ` frame flows through `CodexAdapter.handle` and
   emitted frames go back over the existing `send_json`. Glue tests in
   `tests/test_bridge_codex_glue.py`.
+- [x] Codex approval channel promoted from stub to real bridge:
+  `CodexMcpClient` now distinguishes server-initiated JSON-RPC requests
+  (`elicitation/create`, used by Codex for `exec_approval_request` and
+  `apply_patch_approval_request`); `CodexAdapter.drain_pending_approvals()`
+  translates each into a Passport `approval.request` frame pushed to the
+  device; the operator's `approval.decision` (`approve` / `reject`) is
+  routed back via `respond_to_server_request` and mapped to Codex's
+  `ReviewDecision` (`approved` / `denied`). `passport_bridge.py` drains
+  approvals every tick on both the USB and TCP loops. Coverage in
+  `tests/test_codex_adapter.py::ApprovalRoundTripsThroughElicitation`
+  locks four scenarios (positive, negative, unknown request_id, unsupported
+  server method).
 - [x] Bounded Goal-mode voice stub: OK long-press on the device emits a
   paired `voice.capture.start` / `voice.capture.stop` frame that the Codex
-  adapter treats as one utterance. Real audio worker + STT are deferred to
-  Slice D + P0-5 (see `physical-skills-mvp-design.md`).
+  adapter treats as one utterance. Slice D has since replaced this stub with
+  the real audio worker and the host STT integration boundary described
+  below (see `physical-skills-mvp-design.md`).
 
 ## P1 — hardware and interaction verification
 
@@ -84,6 +100,15 @@ Last evidence: [`passport-service-status.md`](passport-service-status.md)
   enforced structurally — `./tools/validate.sh` is the only entry point and
   it runs static + firmware together; individual devs may still invoke
   `--static` / `--firmware` for iteration.
+- [x] Preflash gate `./tools/validate.sh --preflash` required before every
+  physical flash: runs the complete gate, verifies
+  `build/FoloToy-AI-Passport-full.bin` is a fresh artifact of this run,
+  warns on stale root-level app binaries, and prints an exact `esptool.py`
+  command line derived from the firmware's `flasher_args.json`. Codified as
+  a hard rule in `AGENTS.md` and `AGENTS.zh_CN.md`.
+- [x] Regression static asserts for the three Slice F Major bugs + threshold
+  constant collection + auto-scanned CJK coverage whitelist, all in
+  `tools/validate.sh check_regression_asserts`.
 - [x] Keep device tests separate from build results in every delivery report:
   standardised in `AGENTS.md` (`Build / Host tests / Device tests /
   Unverified` four-line format) and referenced from
@@ -112,9 +137,36 @@ Design doc: [`physical-skills-mvp-design.md`](physical-skills-mvp-design.md).
   ↔ Compose-stack with the mock CLI, confirm approval overlay, event log,
   and Compose selection all render Chinese labels without missing glyphs.
   **Needs operator** — script: `tools/acceptance_slice_f.py`.
-- [ ] Voice worker (`voice.capture.*`) with a real `WEAR.VOICE` overlay.
-  Stub is live (see `send_voice_capture_burst` above); a real audio worker
-  is still Slice D scope.
+- [x] Voice worker (`voice.capture.*`) with a real `WEAR.VOICE` overlay:
+  Slice D MVP landed. `main/passport_voice_vad.[ch]` is a pure-C VAD (peak
+  amplitude + silence hangover + hard duration cap; host tests
+  `tests/test_passport_voice_vad.c` cover 7 cases).
+  `main/passport_voice_worker.[ch]` is a dedicated FreeRTOS task: OK
+  long-press starts one utterance, each 10 ms of PCM16 is base64-framed
+  as `voice.capture.audio`, then releasing OK stops immediately; the
+  800 ms silence timeout and hard duration cap remain fallbacks. The stop
+  behavior is device-verified: two release-driven captures ended with
+  `reason:"manual"` at 420 ms / 42 chunks and 3,180 ms / 318 chunks.
+  The stop
+  frame carries a placeholder
+  `text` (`[voice N chunks Xms peak=Y]`) so Codex/Trae adapters have
+  something concrete to forward until real STT lands. UI: the
+  demo_passport_service hint line becomes an ASCII meter with an elapsed
+  seconds counter while active (Chinese "recording" prefix rendered by
+  the existing CJK subset); the meter is ASCII-only so the subset does
+  not grow with each level change. After capture, "recording stopped" remains
+  visible for two seconds and then the original navigation hint returns.
+  This feedback window is a pure-C state machine covered by host tests and
+  confirmed on the physical device.
+  Font subset went 126 to 128 glyphs (two new glyphs for the recording label).
+- [x] Host-side STT integration boundary: `tools/passport_stt.py` assembles
+  bounded, validated `voice.capture.audio` frames into a temporary PCM16 WAV
+  and runs an operator-supplied `--stt-command` before dispatching the stop
+  frame to either Codex or Trae. The command must contain `{wav}` and print
+  plain transcript text to stdout. Failure preserves the device diagnostic
+  text, and the temporary WAV is deleted. Offline coverage lives in
+  `tests/test_passport_stt.py`. A concrete STT engine/model remains an
+  operator dependency; none is installed on the current workstation.
 - [x] `WEAR.APPROVAL` 60 s timeout and `WEAR.DISCONNECTED` stale banner:
   `passport_service_tick()` ages the pending approval / link and the demo
   layer paints a full-body banner plus a retry/snapshot hint once the link
@@ -125,11 +177,17 @@ Design doc: [`physical-skills-mvp-design.md`](physical-skills-mvp-design.md).
 1. Operator visual verification of the Chinese pages
    (`tools/acceptance_slice_f.py`).
 2. Real phone × NFC relay end-to-end (needs a chosen relay flavour).
-3. Real Codex session run through the bridge (`--codex`), capture the
-   approval notification stream and replace the stub in
-   `tools/codex_adapter.py::_forward_approval_decision`.
-4. Slice D audio worker (`voice.capture.*` real payloads and `WEAR.VOICE`
-   overlay).
+3. Real Codex session run through the bridge (`--codex`), exercising the
+   `elicitation/create` approval round-trip. Blocker on this workstation:
+   Codex CLI 0.139.0 rejects both the config default `gpt-5.6-luna`
+   ("model requires a newer version of Codex") and `gpt-5` ("not supported
+   when using Codex with a ChatGPT account"). Upgrade the CLI or switch to
+   an API-key account before running the real session.
+4. Configure and measure a concrete STT engine/model through
+   `--stt-command`, for example a local whisper.cpp command whose argv
+   includes `{wav}` and whose stdout is plain transcript text. The Bridge
+   assembly and fallback path are implemented; this workstation currently
+   has neither a Whisper executable nor a model.
 5. Update this checklist and
    [`passport-service-status.md`](passport-service-status.md) with the
    measured results.

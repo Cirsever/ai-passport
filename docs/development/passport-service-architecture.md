@@ -90,10 +90,21 @@ the active target is Trae or Codex.
 
 ## 4. Service protocol
 
+The [v2 wire contract](passport-v2-protocol.md) extends this envelope with
+negotiated session routing, approval receipts and automatic companion assets.
+Protocol-1 frames below remain the single-session compatibility path.
+
 USB uses one UTF-8 JSON object per line with an `@passport ` prefix. Boot logs
 without the prefix are ignored by the bridge. Example messages are:
 
 Host to Passport:
+
+The NFC relay sends `{"type":"nfc.present","card_id":"card-1"}` before IDE
+dispatch so the display can animate immediately. `card_id` must match
+`[A-Za-z0-9_:.-]{1,47}`. This observation never authorizes a Goal session,
+binds its identity, or emits an action. Duplicate observations do not restart
+the scene. Multi-card layout comes only from `tile.stack.state`; readiness
+comes from `context.composed` / `goal.mode.state`, never an animation timer.
 
 ```json
 {"type":"task.state","task_id":"runtime-1","state":"running","progress":42,"summary":"Refactoring tracing"}

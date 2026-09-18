@@ -10,6 +10,12 @@
 #define PASSPORT_SERVICE_STACK_MAX 4U
 #define PASSPORT_SERVICE_EVENT_MAX 5U
 #define PASSPORT_SERVICE_APPROVAL_TIMEOUT_MS 60000U
+/* Link idle threshold: once no valid @passport frame has been observed for
+ * this many milliseconds, the header renders 断线. Product decision from
+ * Slice F: no full-body banner, header status only. Keep this collocated with
+ * PASSPORT_SERVICE_APPROVAL_TIMEOUT_MS so both operational thresholds have
+ * one source of truth. */
+#define PASSPORT_SERVICE_LINK_IDLE_DISCONNECT_MS 30000
 
 typedef enum {
     PASSPORT_TASK_IDLE = 0,
@@ -89,6 +95,10 @@ typedef struct {
     char approval_summary[PASSPORT_SERVICE_TEXT_MAX];
     passport_goal_mode_state_t goal_mode_state;
     char goal_card_id[PASSPORT_SERVICE_ID_MAX];
+    /* Display-only observation, independent of one-card Goal admission. */
+    char nfc_card_id[PASSPORT_SERVICE_ID_MAX];
+    uint32_t stack_generation;
+    bool compose_confirmed;
     char goal_ide[PASSPORT_SERVICE_ID_MAX];
     char goal_session_id[PASSPORT_SERVICE_ID_MAX];
     char skill_id[PASSPORT_SERVICE_ID_MAX];
@@ -157,4 +167,3 @@ passport_service_result_t passport_service_ack_top_event(passport_service_t *ser
  * cleared. link_idle_ms is bumped monotonically until the next accepted
  * @passport frame resets it. */
 void passport_service_tick(passport_service_t *service, uint32_t elapsed_ms);
-

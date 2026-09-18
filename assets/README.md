@@ -19,6 +19,23 @@ Store reusable font files and generated font sources in `fonts/`.
 
 ## Images
 
+### Passport UI v2 design previews
+
+- Location: [`images/passport-ui-v2/`](images/passport-ui-v2/).
+- Source: original programmatic illustrations from
+  [`tools/render_passport_design.py`](../tools/render_passport_design.py);
+  project-generated artwork follows the repository [license](../LICENSE).
+  Sample animals are illustrative, not copied from Codex pet assets.
+- Format: 24 RGB PNG screens per language at 240 × 320, four 1568 × 1604
+  overview sheets per language, battery and companion-flow boards, and a JSON
+  manifest. Integer enlargement preserves pixel geometry.
+- Integration: linked from the [v2 design](../docs/development/passport-pixel-ui-design.md);
+  these images are design artifacts, not runtime firmware assets.
+- Regeneration: `python3 tools/render_passport_design.py` (Pillow; uses the
+  existing `fonts/source/AlibabaPuHuiTi-Regular.ttf`, without redistributing a
+  new font file). The full source font renders previews; firmware subsets
+  must be generated separately when the design is implemented.
+
 Store reusable source images and generated display assets in `images/`.
 
 - Use descriptive names and document dimensions, pixel format, conversion steps, and destination.

@@ -92,5 +92,39 @@ class NonDictOrGarbageFramesAreDropped(unittest.TestCase):
         self.assertEqual(conn.sent, [])
 
 
+class VoiceTranscriptionPrecedesAdapterDispatch(unittest.TestCase):
+    def test_pipeline_passes_enriched_stop_to_adapter(self) -> None:
+        class _Transcriber:
+            def process(self, frame: dict) -> dict:
+                enriched = dict(frame)
+                enriched["text"] = "transcribed speech"
+                return enriched
+
+            def take_error(self) -> None:
+                return None
+
+        class _Adapter:
+            def __init__(self) -> None:
+                self.frames: list[dict] = []
+
+            def handle(self, frame: dict) -> list[dict]:
+                self.frames.append(frame)
+                return []
+
+        pipeline = passport_bridge.CodexPipeline.__new__(
+            passport_bridge.CodexPipeline)
+        pipeline._transcriber = _Transcriber()
+        pipeline._adapter = _Adapter()
+
+        pipeline.dispatch({
+            "type": "voice.capture.stop",
+            "request_id": "v-1",
+            "text": "[voice diagnostic]",
+        })
+
+        self.assertEqual(pipeline._adapter.frames[0]["text"],
+                         "transcribed speech")
+
+
 if __name__ == "__main__":
     unittest.main()

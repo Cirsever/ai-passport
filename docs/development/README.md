@@ -19,6 +19,8 @@ This directory contains AI Passport engineering rules and reusable workflows, gr
 
 ## Software architecture
 
+- [passport-pixel-ui-design.md](passport-pixel-ui-design.md): current v2 visual design, 24 screen previews, approval cards, graphical battery, session routing and P1 desktop-pet synchronization.
+- [passport-v2-protocol.md](passport-v2-protocol.md): negotiated session routing, approval receipts, and automatic companion transfer wire contract.
 - [passport-service-architecture.md](passport-service-architecture.md): Passport Service boundaries, protocol, state model, and real NFC/IDE integration gates.
 - [passport-service-status.md](passport-service-status.md): latest measured Passport flash, boot, validation, and known-boundary record.
 - [passport-service-todo.md](passport-service-todo.md): authoritative continuation checklist for the Passport Service MVP.

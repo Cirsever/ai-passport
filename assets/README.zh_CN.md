@@ -17,6 +17,20 @@
 
 ## 图片（images）
 
+### Passport UI v2 设计预览
+
+- 位置：[`images/passport-ui-v2/`](images/passport-ui-v2/)。
+- 来源：[`tools/render_passport_design.py`](../tools/render_passport_design.py)
+  以程序绘制的原创插图，项目生成的画作沿用仓库[许可](../LICENSE)。
+  示例动物为示意，没有复制 Codex 宠物资源。
+- 格式：每种语言 24 张 240 × 320 RGB PNG、四张 1568 × 1604 总览、
+  电池与伙伴同步图，以及 JSON 清单。整数倍放大保留像素几何。
+- 使用：由 [v2 设计文档](../docs/development/passport-pixel-ui-design.zh_CN.md)
+  引用，属于设计交付物，不作为固件运行时资源。
+- 生成：`python3 tools/render_passport_design.py`，依赖 Pillow，使用已有的
+  `fonts/source/AlibabaPuHuiTi-Regular.ttf`，不新增分发字体文件。
+  预览用完整源字体，固件落地时另行生成子集。
+
 可复用的源图与生成的显示资产放在 `images/`。
 
 - 使用描述性命名，并记录尺寸、像素格式、转换步骤与目标路径。

@@ -14,9 +14,13 @@
 #include <string.h>
 
 static const char *TAG = "passport_usb";
-#define PASSPORT_USB_QUEUE_DEPTH 8
+#define PASSPORT_USB_QUEUE_DEPTH 32
 #define PASSPORT_USB_TASK_STACK 4096
-#define PASSPORT_USB_POLL_MS 100
+#define PASSPORT_USB_POLL_MS 20
+#define PASSPORT_USB_TX_BUFFER_SIZE (PASSPORT_USB_FRAME_MAX * 2)
+
+_Static_assert(PASSPORT_USB_TX_BUFFER_SIZE > PASSPORT_USB_FRAME_MAX,
+               "USB TX ring buffer must hold one complete Passport frame");
 
 typedef struct {
     size_t length;
@@ -30,6 +34,9 @@ static TaskHandle_t s_task;
 static volatile bool s_stop_requested;
 static bool s_started;
 static bool s_driver_owned;
+/* Reference count of active users. Each successful _start() bumps it; each
+ * _stop() decrements and only tears the driver down when it reaches zero. */
+static unsigned s_ref_count;
 
 static bool enqueue_rx(const char *framed, size_t length, void *context) {
     (void)context;
@@ -84,8 +91,17 @@ static void usb_task(void *argument) {
 }
 
 esp_err_t passport_transport_usb_start(void) {
-    if (s_started) return ESP_ERR_INVALID_STATE;
+    if (s_started) {
+        s_ref_count++;
+        ESP_LOGI(TAG, "USB transport shared; ref_count=%u", s_ref_count);
+        return ESP_OK;
+    }
     usb_serial_jtag_driver_config_t driver_config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+    /* The ESP-IDF default TX ring is 256 bytes, but a maximum Passport wire
+     * frame is over 500 bytes. usb_serial_jtag_write_bytes() atomically queues
+     * the requested item and returns 0 when the whole item does not fit, so
+     * voice.capture.audio frames can never use the default buffer. */
+    driver_config.tx_buffer_size = PASSPORT_USB_TX_BUFFER_SIZE;
     esp_err_t driver_err = usb_serial_jtag_driver_install(&driver_config);
     if (driver_err != ESP_OK) {
         ESP_LOGE(TAG, "USB Serial/JTAG driver install failed: %s",
@@ -121,6 +137,7 @@ esp_err_t passport_transport_usb_start(void) {
         return ESP_ERR_NO_MEM;
     }
     s_started = true;
+    s_ref_count = 1;
     ESP_LOGI(TAG, "USB Serial/JTAG transport ready; protocol prefix=%s",
              PASSPORT_USB_FRAME_PREFIX);
     return ESP_OK;
@@ -128,6 +145,11 @@ esp_err_t passport_transport_usb_start(void) {
 
 esp_err_t passport_transport_usb_stop(void) {
     if (!s_started) return ESP_OK;
+    if (s_ref_count > 1) {
+        s_ref_count--;
+        ESP_LOGI(TAG, "USB transport shared; ref_count=%u", s_ref_count);
+        return ESP_OK;
+    }
     s_stop_requested = true;
     if (!s_stopped || xSemaphoreTake(s_stopped, pdMS_TO_TICKS(2000)) != pdTRUE) {
         ESP_LOGE(TAG, "USB task stop timeout");
@@ -141,6 +163,7 @@ esp_err_t passport_transport_usb_stop(void) {
     s_tx_queue = NULL;
     s_stopped = NULL;
     s_started = false;
+    s_ref_count = 0;
     if (s_driver_owned) {
         (void)usb_serial_jtag_driver_uninstall();
         s_driver_owned = false;

@@ -2,19 +2,23 @@
   <strong>简体中文</strong> · <a href="ide-adapter-decision.md">English</a>
 </p>
 
-# 第一个 IDE 适配器决策 —— Codex
+# 第一个 IDE 适配器决策 —— Codex（Trae 侧的一次性 chat 拉起已上线）
 
-状态：已决策（切片 C · P0-3）。
+状态：已决策（切片 C · P0-3）；Trae 适配器 2026-09-15 补充落地，仅覆盖
+fire-and-forget `trae-cn chat`，不承诺双向能力。
 Owner：Passport Service。
 
 ## 决策
 
-**第一个本地 IDE 适配器选 Codex**。Trae 暂缓，直到它给出可从主机侧 Bridge
-脚本化调用的、非 GUI 的本地控制面。
+**第一个本地 IDE 适配器仍是 Codex**，因为只有它给出完整的 stdio MCP
+双向流、`elicitation/create` 审批往返、以及 `tools/call codex-reply` 的
+多轮承接。**Trae 适配器现在也已可选启用**，但意义有限：它只覆盖"贴卡
+→ 拉起 Trae Chat 窗口 → 把 utterance 追加到当前会话"这条最小闭环。
+task 事件、审批往返、会话 id 反馈都由适配器合成，Trae 不真报告。
 
-本决策只锁定"第一个 IDE 是谁、已经确认的控制面、以及 Slice C 适配器的
-验收条件"。它不承诺任何实现代码、传输策略或会话模型。这些由 Slice C 的
-后续开发落地。
+本决策锁定"第一个 IDE 是谁、已经确认的控制面、以及 Slice C 适配器的
+验收条件"。它不承诺任何实现代码之外的传输策略。这些由 Slice C 的后续
+开发继续演进。
 
 ## 为什么选 Codex，不选 Trae
 
@@ -101,4 +105,68 @@ Build、Host tests、Device tests 按仓库规矩分开报告。
 - 有真实产品数据表明用户强需 Trae-first 的 Passport 体验，且团队明确接受
   "写非官方适配器"的成本。
 
-在此之前，Trae 适配器**按规矩暂缓，不是按偏好暂缓**。
+第一条**已经成立了一半**：Trae CN 3.3.98 的
+`/Applications/Trae CN.app/Contents/Resources/app/bin/trae-cn chat <prompt>`
+是文档化的官方 CLI，可以从 Bridge 脚本化拉起。因此本次落地了一份最小的
+`tools/trae_adapter.py`（见下节"Trae 适配器 · fire-and-forget"），
+但它不能取代 Codex 适配器 —— Trae 目前仍没有：
+
+- stdio 层的机器可读回执（只有窗口渲染副作用）；
+- 会话 id 反馈（`trae_adapter.py` 用 uuid 合成一个，供 Passport UI 显示）；
+- approval 通道回调（`approval.decision` 走 `bridge.error`）。
+
+在这三条都落地之前，Trae 适配器仅用于"Passport 卡片直连 Trae Chat 窗口"
+的最小演示；生产链路仍以 Codex 适配器为准。
+
+## Trae 适配器 · fire-and-forget（2026-09-15 落地）
+
+**范围**（仅这些）：
+
+- Passport `goal.mode.request` → `trae-cn chat -m agent "..."` 一次调用，
+  合成 `goal.mode.state=enabled` + `task.state` 帧回设备；session_id 是
+  `trae-<uuid8>` 合成串。
+- Passport `voice.capture.stop` 且带 `text` → 再一次 `trae-cn chat` 把
+  utterance 送进同一 Trae 窗口，合成一条 `task.event`「已投递到 Trae Chat」
+  给设备。
+- Passport `approval.decision` → 显式 `bridge.error`，因为 Trae 没有
+  scriptable approval endpoint；操作员必须直接在 Trae 窗口里点。
+
+**不做**：会话保持（每次 `trae-cn chat` 都是新进程）、任务进度回推、审批
+往返、`voice.capture.audio` 真实音频路径、多会话切换。
+
+**wire 命令**：
+
+```bash
+python3 -u tools/passport_bridge.py --usb --serial /dev/cu.usbmodemXXX \
+    --trae [--trae-cwd /path/to/project] [--trae-mode agent|ask|edit]
+```
+
+`--codex` 与 `--trae` 互斥。`--trae-binary` 缺省时自动探测
+`/Applications/Trae CN.app` 与 `/Applications/Trae.app`。
+
+**主机侧测试**：`tests/test_trae_adapter.py`（11 项，含
+子进程 stub、二 IDE 拒收、UTF-8 CJK utterance、approval 明确不支持、
+可见性提示）+ `tests/test_bridge_trae_glue.py`（5 项，桥胶水层，含 NFC
+中继 pipeline 路由）。
+
+**首次实战复盘（2026-09-16）**：
+
+- 首次 `--trae` 实战看起来失败：操作员看不到新的 Trae Chat 窗口。窗口
+  其实开了 —— `-r`（reuse-window）是 CLI 默认值，prompt 就落进了当前
+  聚焦的 Trae 窗口里，跟正在进行的对话混在一起。修复：adapter 现在用
+  `-n --maximize` 强制每次开独立窗口。workspaceStorage 侧信道旁证：
+  每次调用都会新增一个 `workspaceStorage/...` 目录。
+- 即便有 `-n`，新窗口也可能被派生它的窗口叠住。adapter 现在每次 chat
+  成功后向 stderr 输出一行提示，告诉操作员用 Mission Control（F3）或
+  ⌘\` 把新窗口切到前台。
+- 同一次实战里 NFC 中继路径也失败了。中继把 `goal.mode.request` 直接
+  丢到 wire 上，但这个方向在协议里是"设备→主机"—— 设备侧行解析器
+  拒收。修复：`_drain_nfc_outbox` 现在在 pipeline（Codex 或 Trae）
+  存在时把中继帧分发到 pipeline 而不是 wire，只有 pipeline 合成的
+  `goal.mode.state`、`task.state` 才发到设备。
+- 固件侧同步做了一次单卡准入放宽：`parse_goal_mode_state` 原本要求
+  帧里的 card_id 已经在 `state->goal_card_id` 里注册过（只有真实
+  NFC reader 触发才会写入），中继路径没有 reader → 永远拒收。现在
+  `state->goal_card_id` 为空时，wire 上第一帧 `goal.mode.state`
+  的 card_id 就被采纳；第二张不同 card_id 的帧仍然拒收 ——"一张卡、
+  不换卡"契约保留。

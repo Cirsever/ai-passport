@@ -48,18 +48,62 @@ Use the unified validation entry point:
 ./tools/validate.sh --static    # repository checks, workflows, links, secrets, host tests
 ./tools/validate.sh --firmware  # build, merge-bin, offsets, and configured layout
 ./tools/validate.sh             # complete gate; requires an activated ESP-IDF environment
+./tools/validate.sh --preflash  # mandatory before every physical flash; see below
 ```
 
 CI calls the same script. Fix the shared script or environment if local and CI behavior differs; do not duplicate command sequences in workflows.
 
 Hardware-affecting changes must also run the applicable on-device checklist in the hardware guide. Report compilation separately from physical-device validation.
 
+## Preflash gate
+
+Every physical flash (blank device, refresh, hardware verification) must be
+preceded by:
+
+```bash
+./tools/validate.sh --preflash
+```
+
+The preflash entry runs `--static` and `--firmware`, then confirms that the
+resulting `build/FoloToy-AI-Passport-full.bin` was produced by *this* run
+(mtime not older than the script's start time). This catches the most common
+"looked fine yesterday" trap: flashing a stale merged image after uncommitted
+edits. When a stale `build/FoloToy-AI-Passport.bin` sits next to the fresh
+merged image the gate prints a warning, because `idf.py flash` would pick up
+that older app binary and ship it silently.
+
+On success the gate prints an `esptool.py` command line whose `--flash_mode`,
+`--flash_freq`, and `--flash_size` are read from the firmware build's own
+`flasher_args.json`, so the printed command matches the firmware image
+byte-for-byte instead of falling back to esptool defaults.
+
+The gate refuses to sign off when any of the guardrails fail:
+
+- **Regression asserts** — three Slice F Major bugs may not regress: the
+  `disconnected_banner` dead field cannot come back, `demo_passport_service_stop`
+  must tear down the transport even when the LVGL lock times out, and neither
+  demo may call `usb_serial_jtag_driver_(un)install` directly (they must go
+  through the ref-counted `passport_transport_usb_start/stop`).
+- **CJK font coverage** — the `--symbols` subset in `main/fonts/ui_cn_16.c`
+  must cover every Chinese character emitted by any source that includes
+  `ui_cn_16.h` (auto-discovered).
+- **Threshold constants** — the 30 s link-idle threshold and 60 s approval
+  timeout may only live in `main/passport_service.h` as named constants;
+  raw `30000` / `60000` literals in `main/*.c` fail the gate.
+- **Firmware layout** — 8 MB flash, MD5-marked partition table, application
+  fits its configured app partition, merged image starts at `0x0`.
+
+Never upload the app-only `build/FoloToy-AI-Passport.bin` to the community. Only
+the validated `build/FoloToy-AI-Passport-full.bin` contains the complete checked
+firmware layout.
+
 ## CJK font coverage gate
 
 `./tools/validate.sh` (both `--static` and `--firmware`) parses the `--symbols`
 header baked into `main/fonts/ui_cn_16.c` and diffs it against every
-`0x4E00-0x9FFF` character present in `main/passport_ui_model.c` and
-`main/demo_passport_service.c`. Any character used by the UI but missing from
+`0x4E00-0x9FFF` character present in every `main/*.c` / `main/*.h` that
+includes `ui_cn_16.h`, plus the shared string builder
+`main/passport_ui_model.[ch]`. Any character used by the UI but missing from
 the subset fails the gate with the exact list plus:
 
 ```
@@ -73,7 +117,3 @@ the new characters to the manual pool inside `tools/collect_ui_glyphs.py` or
 just rerun `./tools/gen_cjk_font.sh`; either path regenerates
 `main/fonts/ui_cn_16.c` from `fonts/source/AlibabaPuHuiTi-Regular.ttf` and
 lets the gate go green.
-
-Never upload the app-only `build/FoloToy-AI-Passport.bin` to the community. Only
-the validated `build/FoloToy-AI-Passport-full.bin` contains the complete checked
-firmware layout.

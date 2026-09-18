@@ -4,85 +4,97 @@
 
 # Passport Service 开发状态
 
-状态日期：2026-09-14
+状态日期：2026-09-18
+
 分支：`codex/passport-service-mvp`
-当前阶段：切片 F Physical Skills MVP 固件已经就位并烧录到设备；真实 NFC、
-IDE 适配器和语音 worker 仍在待办。中文页面渲染需要人眼验收。
 
-本文档记录最近一次实测的开发状态，是恢复开发的证据，不是产品发布通告。
+当前阶段：Passport v2 基线已经开发完成。固件、Codex 主机会话路由、审批回执、
+图形电量、会话选择器和 PC 宠物自动同步已经接通，仓库完整门禁通过，v2 固件
+已经烧录。本轮下一步是实机走查。
 
-## 本阶段完成
+本文记录经过验证的项目状态，不是版本发布说明。
 
-- 启动后直接进入 Passport Service 页面用于 MVP 硬件测试。
-- 纯 C Service Core 支持有界协议解析、单卡准入、Goal 请求/确认状态、任务
-  进度、审批、Skill revision、以及 `task.event`、`tile.stack.state`、
-  `context.composed`、`skill.updated`、Wear/Compose 页面状态、事件环形缓冲、
-  页面导航和事件确认。
-- `passport_ui_model` 产出三个页面（`WEAR.HOME` / `WEAR.TASK` /
-  `COMPOSE.STACK`），全部中文文案，顶栏（模式/链路/电量）+ 变长正文行 +
-  提示条 + 审批浮层标志分开成型。
-- `demo_passport_service` 使用 16 px CJK 子集 LVGL 字体（`ui_cn_16`）
-  渲染上述模型。审批浮层是正文区面板，不遮挡顶栏和提示条。
-- `tools/passport_bridge.py` 支持 `!compose` / `!event` / `!skill` /
-  `!task` / `!approval` / `!help` 手动 mock 命令，无 Tile Reader 也能跑通
-  host↔device 流程。
-- USB Serial/JTAG 传输沿用 `@passport ` 单行 JSON 帧。
-- 真实卡片事件入口保留 `demo_passport_service_nfc_card(const char *card_id)`，
-  固件不会自行捏造卡片事件。
+## 已实现
 
-## 硬件与烧录证据
+- 原有像素场景、3.2 秒贴卡扫描、四卡叠放和松键停止录音保持不变。
+- 设备会定期发送 protocol 2 hello。16 位 Bridge 标识变化后，旧路由、待处理
+  审批和暂存伙伴资源立即失效。
+- `passport_v2_state` 只保存三条会话记录；目录收齐后才整体发布。旧的切换事务
+  不会覆盖新选择，所有操作都按 `bridge`、不透明 `sid` 和 `epoch` 路由。
+- 长按上键打开会话选择器，上／下键移动，确认键发起切换。审批和录音期间不能
+  切换；一段录音从开始到结束固定使用同一条路由。
+- 审批改为操作卡，并提供详情页。设备必须等到 `approval.receipt`，只发出决定
+  不会显示为执行成功。
+- 顶栏电量改为四格像素图标。电量不可用时显示 `?`，不会把 USB 连接误判为充电。
+- Codex 适配器同时运行兼容用 MCP 客户端和真实 app-server 客户端。
+  `thread/list`、`thread/read`、`thread/resume`、`turn/start` 用于精确路由已有
+  会话。本机只读 smoke 已成功返回当前仓库的一条真实 thread。
+- app-server 的命令／文件审批和旧 MCP elicitation 都能转成 Passport 审批，
+  回写时分别使用各自的原生 decision 枚举。
+- 用户只需在 PC IDE 换宠。Bridge 读取 Codex 当前选择，防抖 500 ms，将已验证的
+  v2 图集转换为一张 32x32 索引图，并只在链路空闲时传输；设备没有换宠或手动同步
+  入口。
+- 伙伴资源按 128 字节分块停等传输，带偏移 ACK 和 SHA-256 commit。设备只在非
+  活动槽完整校验后切换，失败时继续显示旧伙伴。
+- Trae 仍明确降级为 protocol-1 只读／合成会话模式，因为现有 CLI 不能证明能
+  精确路由到指定的历史对话。
 
-- 板卡被识别为 `/dev/cu.usbmodem2101`（ESP32-C3，8 MB Flash）。
-- `idf.py build` 产出 `FoloToy-AI-Passport.bin` = 1,557,088 字节。factory
-  分区总大小 8,323,072 字节，剩余约 81%。
-- `idf.py -p /dev/cu.usbmodem2101 flash` 写入 bootloader（偏移 0x0，
-  0x5220 字节）、分区表（0x8000，3,072 字节）和 factory 应用（0x10000，
-  1,557,088 字节 / 879,539 字节压缩后）。Hash 校验通过。NVS 未清空。
-- 设备通过 RTS 引脚硬复位，主机开始写入后立即观察到 USB Serial/JTAG RX
-  日志（`I passport_usb: USB RX bytes=2`）。
-- Bridge 成功推送 task.state、task.event、tile.stack.state、
-  context.composed、approval.request 等 mock 帧到设备。设备在传输启动时
-  就发出 `device.hello`，不再依赖不可靠的 USB Serial/JTAG DTR 位。
+协议以 [`passport-v2-protocol.zh_CN.md`](passport-v2-protocol.zh_CN.md) 为准，
+界面和交互以
+[`passport-pixel-ui-design.zh_CN.md`](passport-pixel-ui-design.zh_CN.md) 为准。
 
-## 验证证据
+## 资源和构建数据
 
-最近一次固件变更后的完整验证：
+- `s_v2` 静态 RAM：2,632 字节。
+- `s_scene` 静态 RAM：760 字节，其中包含绘制用的当前索引伙伴。
+- 应用镜像：1,596,944 字节。
+- factory 分区：8,323,072 字节，剩余约 81%。
+- 最新合并镜像：`build/FoloToy-AI-Passport-full.bin`，1,662,480 字节。
+- SHA-256：
+  `da49e579bcd3072e0225c626954d95857407e7955296e3adab68c5b7e491f61d`。
+- 默认分区仍是 NVS、PHY 数据和单个 factory 应用，没有新增产品分区。
 
-- `./tools/validate.sh --static`：PASS（197 个文本文件、11 个 host tests）。
-- `./tools/validate.sh --firmware`：PASS。
-- 固件布局：PASS（factory 分区 0x10000，1,557,088 / 8,323,072 字节）。
-- 合并镜像：PASS（Flash 0x0，1,622,624 字节）。
-- `idf.py -p /dev/cu.usbmodem2101 flash`：PASS。
+## 验证结果
 
-设备测试覆盖了烧录、开机、USB Serial/JTAG RX 和主机侧 mock 协议帧的投递。
-`WEAR.DISCONNECTED` 断线横幅已在 240×320 实体屏上完成中文渲染视觉验收（
-每个字都正常，没有缺字方块），前提是重新生成 `ui_cn_16` 覆盖新加入的
-字符串。`tools/acceptance_slice_f.py` 中剩余的 Wear / Compose 检查点仍在
-等待人工走一遍。
+v2 开发完成后已执行：
 
-## 已知边界
+- `./tools/validate.sh --static`：PASS。
+- Host C tests：PASS，覆盖会话目录事务、路由隔离、审批回执、伙伴偏移／commit
+  和电量边界。
+- Python tests：PASS。系统 Python 下通过 14 个 Codex 适配器用例、4 个 Bridge
+  接线用例和 4 个 Pillow 宠物转换／防抖用例。
+- 真实 Codex app-server 只读 smoke：PASS。
+- ESP-IDF 5.5.3 固件构建：PASS。
+- 合并镜像布局校验：PASS。
+- 使用固件同一 `passport_scene_draw` 的 Host 预览：PASS，覆盖空闲、扫描、
+  多卡和索引伙伴。
 
-- 当前板卡文档没有定义 MCU 侧 NFC Reader API 或引脚。没有外置 Reader 或
-  手机中继时，手机模拟卡无法直接通知 ESP32。
-- Codex 适配器已决策并落地骨架：`tools/codex_adapter.py`。已在本机实测过
-  `codex mcp-server` 握手（Codex CLI 0.139.0）。设备侧接线现在通过
-  `passport_bridge.py --codex[/--codex-cwd/--codex-model/...]` 完成：每一条
-  设备发出的 `@passport ` 帧都会喂给 `CodexAdapter.handle`，产出的 Passport
-  帧走既有 `send_json` 直接回写设备。Host tests：`tests/test_codex_adapter.py`
-  (6) + `tests/test_bridge_codex_glue.py` (3)。Slice C 上线前尚待处理：
-  (a) 审批往返通道当前用 `bridge.error` stub，等 Codex 审批 notification
-  流实测清点；(b) `voice.capture.stop` 需要真实的转录文本，走 Slice D + P0-5。
-  真机烟测入口在 `tools/manual_codex_smoke.py`。
-- 音频 codec 初始化成功，但 Goal 录音、音频分帧和 Bridge 投递还没有接入
-  Passport Service 页面。`WEAR.VOICE` 已在设计中，尚未落码。
-- 屏幕已成功初始化，但 Wear/Compose 中文页面仍需人眼在实体屏幕上确认。
-- USB Serial/JTAG 传输的活跃度只用协议帧空闲时长（`link_idle_ms`）判断，
-  不再看 DTR 位；`passport_transport_usb_connected()` 已删除，代码里也
-  不再调用 `usb_serial_jtag_is_connected()`。因为 raw-open 的 Python 桥
-  从不 assert DTR，如果仍读它就会把断线横幅永远钉在屏幕上。
+ESP-IDF 自带的 Python 环境没有可选 Pillow，因此其中 4 个伙伴转换用例会显示
+skip；Bridge 使用的系统 Python 已安装 Pillow 10.4.0，同一组用例全部通过。
+
+## 烧录与实机状态
+
+- 当前识别到的设备：`/dev/cu.usbmodem2101`。
+- 上一版 Slice F 已烧录，并完成松键停止录音的实机验证。
+- v2 烧录前已执行 `./tools/validate.sh --preflash`，结果 PASS。
+- 已验证的 bootloader、分区表和 1,596,944 字节应用分别写入 0x0、0x8000 和
+  0x10000；三段设备端 hash 校验全部通过，RTS 硬复位完成。0x9000 的 NVS 区域
+  未被覆盖。
+- 重启后，真实 USB Bridge 收到 protocol-2 `device.hello`，并回传
+  `host.hello` 和当前空路由快照；Codex MCP 0.139.0 与精确路由 app-server
+  均启动成功。
+
+## 尚待验证
+
+- 在 240x320 实体屏上检查 v2 电量、会话选择器、操作卡和伙伴显示。
+- 走一条真实 app-server 审批，确认设备端回执状态。
+- 在 PC IDE 更换宠物，确认空闲时自动同步。如果 IDE 没有暴露当前宠物选择键，
+  Bridge 应继续保留设备上的旧伙伴。
+- 在四卡、录音和伙伴传输同时存在时测量运行时剩余堆内存。静态符号大小不能代替
+  峰值 RAM 测量。
+- 完成真实 NFC 和外部 STT 的剩余验证。
 
 ## 恢复点
 
-从 [`passport-service-todo.zh_CN.md`](passport-service-todo.zh_CN.md) 起。
-接下来最紧要的四件事：(1) 中文页面的实机人眼验收；(2) NFC 输入路径决策；
-(3) 第一个 IDE 适配器；(4) 语音 worker。
+v2 烧录后，从 [`passport-service-todo.zh_CN.md`](passport-service-todo.zh_CN.md)
+的实机走查继续。不要增加设备端换宠或手动同步入口。

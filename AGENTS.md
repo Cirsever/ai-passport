@@ -47,9 +47,10 @@ Run the smallest relevant check while iterating, then run the complete gate befo
 ./tools/validate.sh --static    # repository checks + host tests
 ./tools/validate.sh --firmware  # ESP-IDF build + merged-image verification
 ./tools/validate.sh             # complete gate
+./tools/validate.sh --preflash  # required before every physical flash
 ```
 
-The complete gate requires an activated ESP-IDF 5.5.3 environment. Do not describe a successful build as hardware validation. Final delivery must report these fields separately:
+The complete gate requires an activated ESP-IDF 5.5.3 environment. Do not describe a successful build as hardware validation. Every physical flash — whether a blank device, a refresh, or a hardware-verification pass — MUST be preceded by `./tools/validate.sh --preflash`. The preflash entry re-runs the complete gate and confirms `build/FoloToy-AI-Passport-full.bin` is a fresh artifact of that run; a stale merged image is treated as a hard failure. Final delivery must report these fields separately:
 
 ```text
 Build: PASS / FAIL / NOT RUN

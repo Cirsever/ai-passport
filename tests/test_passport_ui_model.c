@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "passport_ui_model.h"
@@ -128,10 +129,9 @@ static void test_stale_link_updates_header_only(void) {
     strcpy(snapshot.summary, "重构 tracing");
     snapshot.task_state = PASSPORT_TASK_RUNNING;
     snapshot.progress = 42;
-    snapshot.link_idle_ms = 40000;
+    snapshot.link_idle_ms = PASSPORT_SERVICE_LINK_IDLE_DISCONNECT_MS + 10000;
     passport_ui_model_build(&snapshot, true, 80, &model);
 
-    assert(model.disconnected_banner[0] == '\0');
     assert(strcmp(model.link, "断线") == 0);
     /* Body still reflects live state, not a warning banner. */
     assert(strcmp(model.body[0], "运行中 42%") == 0);
@@ -139,16 +139,56 @@ static void test_stale_link_updates_header_only(void) {
 }
 
 static void test_no_banner_before_first_frame(void) {
-    /* Fresh boot: link_idle_ms is non-zero but no host frame has been applied
-     * yet. Header shows 未连接 without splashing the body. */
+    /* Fresh boot: no host frame has been applied yet (link_idle_ms == -1).
+     * Header shows 未连接 without splashing the body. */
     passport_service_snapshot_t snapshot = {0};
     passport_ui_model_t model;
 
     snapshot.page = PASSPORT_PAGE_WEAR_HOME;
-    snapshot.link_idle_ms = 120000;
+    snapshot.link_idle_ms = -1;
     passport_ui_model_build(&snapshot, true, 80, &model);
 
-    assert(model.disconnected_banner[0] == '\0');
+    assert(strcmp(model.link, "未连接") == 0);
+    assert(model.body[0][0] != '\0');
+}
+
+static void test_voice_completion_feedback_expires_and_rearms(void) {
+    passport_voice_feedback_t feedback;
+    passport_voice_feedback_init(&feedback);
+
+    assert(passport_voice_feedback_update(&feedback, false, false, 100) ==
+           PASSPORT_VOICE_FEEDBACK_HIDDEN);
+    assert(passport_voice_feedback_update(&feedback, true, false, 100) ==
+           PASSPORT_VOICE_FEEDBACK_ACTIVE);
+    assert(passport_voice_feedback_update(&feedback, false, true, 100) ==
+           PASSPORT_VOICE_FEEDBACK_COMPLETED);
+
+    for (unsigned elapsed = 100;
+         elapsed < PASSPORT_VOICE_COMPLETED_VISIBLE_MS; elapsed += 100) {
+        assert(passport_voice_feedback_update(&feedback, false, true, 100) ==
+               PASSPORT_VOICE_FEEDBACK_COMPLETED);
+    }
+    assert(passport_voice_feedback_update(&feedback, false, true, 100) ==
+           PASSPORT_VOICE_FEEDBACK_HIDDEN);
+    assert(passport_voice_feedback_update(&feedback, false, true, 100) ==
+           PASSPORT_VOICE_FEEDBACK_HIDDEN);
+
+    assert(passport_voice_feedback_update(&feedback, true, false, 0) ==
+           PASSPORT_VOICE_FEEDBACK_ACTIVE);
+    assert(passport_voice_feedback_update(&feedback, false, true, 0) ==
+           PASSPORT_VOICE_FEEDBACK_COMPLETED);
+}
+
+static void test_voice_feedback_handles_large_tick_without_overflow(void) {
+    passport_voice_feedback_t feedback;
+    passport_voice_feedback_init(&feedback);
+
+    assert(passport_voice_feedback_update(&feedback, false, true, 0) ==
+           PASSPORT_VOICE_FEEDBACK_COMPLETED);
+    assert(passport_voice_feedback_update(&feedback, false, true, UINT32_MAX) ==
+           PASSPORT_VOICE_FEEDBACK_HIDDEN);
+    assert(feedback.completed_elapsed_ms ==
+           PASSPORT_VOICE_COMPLETED_VISIBLE_MS);
 }
 
 int main(void) {
@@ -159,5 +199,7 @@ int main(void) {
     test_approval_overrides_hint();
     test_stale_link_updates_header_only();
     test_no_banner_before_first_frame();
+    test_voice_completion_feedback_expires_and_rearms();
+    test_voice_feedback_handles_large_tick_without_overflow();
     return 0;
 }

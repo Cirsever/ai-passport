@@ -2,106 +2,115 @@
   <strong>English</strong> · <a href="passport-service-status.zh_CN.md">简体中文</a>
 </p>
 
-# Passport Service Development Status
+# Passport Service development status
 
-Status date: 2026-09-14
+Status date: 2026-09-18
+
 Branch: `codex/passport-service-mvp`
-Current phase: Slice F Physical Skills MVP firmware in place and flashed to
-device; real NFC, IDE adapter, and voice worker still pending. Chinese page
-rendering awaits human visual confirmation.
 
-This document records the latest measured development state. It is evidence for
-resuming work, not a product-release note.
+Current phase: the Passport v2 implementation baseline is complete. The
+firmware, Codex host route, approval receipts, graphical battery, session
+picker and automatic PC companion transfer are integrated. The complete
+repository gate passes and the v2 firmware has been flashed. A physical device
+walkthrough is the next step.
 
-## Completed in this stage
+This file records measured project state. It is not a release note.
 
-- Passport boots directly into the Passport Service page for MVP hardware
-  testing.
-- The pure-C Service Core supports bounded protocol parsing, one-card admission,
-  Goal request/confirmation state, task progress, approvals, Skill revision
-  state, `task.event`, `tile.stack.state`, `context.composed`, `skill.updated`,
-  the Wear/Compose page state, event ring, navigation, and event ack.
-- `passport_ui_model` produces three pages (`WEAR.HOME`, `WEAR.TASK`,
-  `COMPOSE.STACK`) with Chinese labels, a header (mode/link/battery), a
-  variable-length body, a hint bar, and an approval overlay flag.
-- `demo_passport_service` renders that model with a 16 px CJK-subset LVGL font
-  (`ui_cn_16`). The approval overlay is a body-region panel that does not hide
-  the header or hint.
-- `tools/passport_bridge.py` accepts `!compose`, `!event`, `!skill`, `!task`,
-  `!approval`, and `!help` mock commands so the host↔device flow can be
-  exercised without a Tile Reader.
-- The USB Serial/JTAG transport uses `@passport ` newline-delimited JSON
-  frames.
-- A real card-event boundary is exposed through
-  `demo_passport_service_nfc_card(const char *card_id)`. The firmware does not
-  manufacture a card event.
+## Implemented
 
-## Hardware and flash evidence
+- The existing pixel scene, 3.2-second card scan, four-card stack and
+  release-to-stop voice flow remain in place.
+- The device now advertises protocol 2 periodically. A changed 16-hex Bridge
+  identity invalidates the route, pending approval and staged companion.
+- `passport_v2_state` keeps a bounded three-row session page, stages complete
+  catalogs before publishing them, rejects stale selection transactions and
+  routes actions with the exact `bridge` / opaque `sid` / `epoch` tuple.
+- Holding Up opens the session picker. Up/Down select a row and OK requests
+  the switch. Approval and recording block switching; one recording keeps the
+  route captured at start.
+- Approval is rendered as an operation card with a details page. The device
+  waits for `approval.receipt`; sending a decision alone is not displayed as
+  execution success.
+- The battery header is a four-segment pixel icon. Unknown SOC renders `?`;
+  no charging mark is inferred from USB.
+- The Codex adapter runs the compatibility MCP client and a real app-server
+  client. `thread/list`, `thread/read`, `thread/resume` and `turn/start` provide
+  exact existing-thread routing. A live read-only smoke returned one thread
+  for this repository.
+- App-server command/file approval requests and legacy MCP elicitations both
+  map to Passport approvals, while preserving their native response enums.
+- PC companion changes require no device interaction. The Bridge reads the
+  selected Codex pet configuration, debounces changes for 500 ms, converts the
+  verified v2 atlas to one 32x32 indexed frame, and transfers it only during
+  idle traffic.
+- Companion transfer uses 128-byte stop-and-wait chunks, offset ACKs and a
+  SHA-256 commit. The inactive device slot is published only after complete
+  validation; failures preserve the current companion.
+- Trae remains an explicit protocol-1, read-only/synthetic-session fallback
+  because its CLI does not prove exact routing to an existing conversation.
 
-- The board was detected at `/dev/cu.usbmodem2101` (ESP32-C3, 8 MB flash).
-- `idf.py build` produced `FoloToy-AI-Passport.bin` = 1,557,088 bytes. The
-  factory partition has 8,323,072 bytes; free space is approximately 81%.
-- `idf.py -p /dev/cu.usbmodem2101 flash` wrote the bootloader (offset 0x0,
-  0x5220 bytes), the partition table (0x8000, 3,072 bytes), and the factory
-  application (0x10000, 1,557,088 bytes / 879,539 compressed). Hash of data
-  verified. NVS was not touched.
-- The device hard-reset via RTS pin and produced live USB Serial/JTAG RX
-  traffic (`I passport_usb: USB RX bytes=2`) once a host started writing.
-- The bridge successfully pushed mock frames to the device (task.state,
-  task.event, tile.stack.state, context.composed, approval.request), and the
-  device emits its `device.hello` on transport start-up without gating on the
-  unreliable USB Serial/JTAG DTR bit.
+The normative protocol is
+[`passport-v2-protocol.md`](passport-v2-protocol.md). The visual and interaction
+contract is
+[`passport-pixel-ui-design.md`](passport-pixel-ui-design.md).
 
-## Validation evidence
+## Resource and build evidence
 
-The final validation was run after the last firmware change:
+- `s_v2`: 2,632 bytes of static RAM.
+- `s_scene`: 760 bytes, including the active indexed companion used for draw.
+- Application image: 1,596,944 bytes.
+- Factory partition: 8,323,072 bytes; approximately 81% remains free.
+- Fresh merged image: `build/FoloToy-AI-Passport-full.bin`, 1,662,480 bytes.
+- SHA-256:
+  `da49e579bcd3072e0225c626954d95857407e7955296e3adab68c5b7e491f61d`.
+- Default partition layout remains NVS, PHY data and one factory application.
 
-- `./tools/validate.sh --static`: PASS (197 text files scanned, 11 host tests).
-- `./tools/validate.sh --firmware`: PASS.
-- Firmware layout: PASS (1,557,088 / 8,323,072 bytes in `factory` at 0x10000).
-- Merged image: PASS (1,622,624 bytes at flash 0x0).
-- `idf.py -p /dev/cu.usbmodem2101 flash`: PASS.
+## Validation
 
-The device test covered flashing, boot, USB Serial/JTAG RX, and delivery of
-mock protocol frames from the host bridge. Chinese-page rendering on the
-physical 240×320 display has been visually confirmed for the disconnected
-banner (`WEAR.DISCONNECTED`) — every glyph rendered, no missing squares —
-after regenerating `ui_cn_16` to cover the newly added strings. The remaining
-Wear/Compose checkpoints in `tools/acceptance_slice_f.py` are pending an
-operator walkthrough.
+Completed after the v2 implementation:
 
-## Known boundaries
+- `./tools/validate.sh --static`: PASS.
+- Host C tests: PASS, including v2 catalog transactions, route isolation,
+  approval receipts, companion offset/commit behavior and battery boundaries.
+- Python tests: PASS under system Python, including 14 Codex adapter cases,
+  four Bridge glue cases and four Pillow companion conversion/debounce cases.
+- Real Codex app-server read-only smoke: PASS.
+- Firmware build with ESP-IDF 5.5.3: PASS.
+- Merged-image layout verification: PASS.
+- Host rendering through `passport_scene_draw`: PASS for idle, scan, stacks
+  and an indexed companion.
 
-- The current board documentation does not define an MCU-side NFC Reader API
-  or reader pin assignment. A phone simulating an NFC card cannot directly
-  notify this ESP32 without an external reader or a phone-to-Bridge relay.
-- The Codex adapter is now decided and skeleton-implemented in
-  `tools/codex_adapter.py`. Handshake with `codex mcp-server` was measured
-  live on this workstation (Codex CLI 0.139.0). The bridge glue for wiring
-  the adapter into the physical device path ships as
-  `passport_bridge.py --codex[/--codex-cwd/--codex-model/...]`; feed each
-  device-side `@passport ` frame through `CodexAdapter.handle` and forward
-  every emitted Passport frame back through the existing `send_json`. Host
-  tests: `tests/test_codex_adapter.py` (6) + `tests/test_bridge_codex_glue.py`
-  (3). Outstanding pieces before Slice C is production-ready: (a) approval
-  round-trip channel, currently stubbed with a `bridge.error`, awaits
-  inventory of Codex's approval notification stream; (b) real audio path so
-  `voice.capture.stop` carries a transcript (Slice D + P0-5). Manual smoke
-  path: `tools/manual_codex_smoke.py`.
-- The audio codec initializes successfully, but Goal-mode recording, audio
-  framing, and Bridge delivery are not implemented in the Passport Service
-  page. `WEAR.VOICE` is documented but not yet wired.
-- The screen was initialized successfully, but a human still needs to visually
-  confirm the Chinese-labelled Wear/Compose pages on the physical display.
-- Liveness on the USB Serial/JTAG transport is inferred from protocol-frame
-  idle time (`link_idle_ms`) rather than the DTR bit. The DTR-based
-  `passport_transport_usb_connected()` was removed and no code path consults
-  `usb_serial_jtag_is_connected()`, because raw-open Python bridges never
-  assert DTR, which would pin the disconnected banner permanently.
+The ESP-IDF Python environment does not include optional Pillow, so its
+companion tests report four skips. The same tests pass under the Bridge's
+system Python environment where Pillow 10.4.0 is installed.
+
+## Flash and device evidence
+
+- Detected device: `/dev/cu.usbmodem2101`.
+- The previous Slice F build was flashed and its release-to-stop voice flow
+  was verified on-device.
+- `./tools/validate.sh --preflash`: PASS immediately before the v2 flash.
+- The validated bootloader, partition table and 1,596,944-byte application
+  were written at 0x0, 0x8000 and 0x10000. All three device-side hashes passed
+  and RTS hard reset completed. The NVS region at 0x9000 was not overwritten.
+- After reset, the real USB Bridge received protocol-2 `device.hello` frames
+  and returned `host.hello` plus the current empty route snapshot. Codex MCP
+  0.139.0 and the exact-routing app-server both started successfully.
+
+## Remaining verification
+
+- Inspect the v2 battery, session picker, operation card and companion on the
+  physical 240x320 display.
+- Exercise a real app-server approval and confirm the device receipt states.
+- Change the selected pet in the PC IDE and confirm automatic idle transfer.
+  If the IDE exposes no selected-pet key, the Bridge correctly retains the
+  existing device companion.
+- Measure runtime free heap with four cards, recording and a companion transfer
+  active. Static symbol sizes alone are not a peak-RAM measurement.
+- Complete the remaining real NFC and external STT checks.
 
 ## Resume point
 
-Start from [`passport-service-todo.md`](passport-service-todo.md). Immediate
-next steps: (1) human visual verification of the Chinese pages on device,
-(2) NFC input path decision, (3) first IDE adapter, (4) voice worker.
-
+After the v2 flash, use the device walkthrough in
+[`passport-service-todo.md`](passport-service-todo.md). Do not add device-side
+pet selection or manual synchronization controls.

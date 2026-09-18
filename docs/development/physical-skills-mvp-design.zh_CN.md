@@ -5,6 +5,50 @@
 # AI Passport Physical Skills MVP — 页面设计
 
 状态：MVP 设计稿，源自 `AI_Passport_Physical_Skills_MVP_Design_v0.1`。
+
+当前视觉设计和完整界面预览见
+[Passport 像素伙伴 v2](passport-pixel-ui-design.zh_CN.md)。其中的审批、电池、
+多会话和 P1 宠物规格替代本文对应的路线图示意。下方已实现记录保留为此前基线。
+
+## 已实现的像素场景（2026-09）
+
+本节替代下方首页和叠卡页的纯文字示意。其余示意仍属于路线图，包括模式锁、
+技能详情、重载提示，以及整页断线提示。
+
+- 240×320 界面采用蓝色顶栏、奶油色卡面、硬阴影、像素机器人、角色配色和读卡底座。
+  顶栏高 43 px，正文位于 y=47–263，两行按键提示位于 y=268–316。
+- Bridge 在启动 IDE 适配器**之前**发送 `nfc.present`，其中 `card_id` 符合
+  `[A-Za-z0-9_:.-]{1,47}`。该消息只触发显示，
+  不启用目标模式、不生成动作，也不构造贴片堆叠。
+- 首次识别卡片后播放扫描动画，单卡共展示 3200 ms；多卡堆叠变化时动画持续
+  1400 ms，各层间隔 120 ms 入场。动画结束后卡片继续保留。相同快照不会重复播放，
+  移除后重新放入会再次触发。
+- `tile.stack.state` 决定最多四张卡片的叠放，索引 0 位于最前方。下键循环高亮
+  所选卡片，堆叠下方显示其角色、标识和版本。重复贴 NFC 卡不累加张数；
+  空堆叠会清除叠卡场景。
+- 动画结束不代表主机处理成功。只有 `goal.mode.state` 或 `context.composed`
+  才确认就绪；等待、冲突和断线状态分别显示。任务进度取自 `task.state.progress`。
+- 审批、录音浮层优先；被覆盖或进入任务详情时暂停场景计时。录音结束提示保留 2 秒。
+- 场景使用一个 LVGL 自绘对象，复用现有 100 ms 刷新定时器。状态和矩形布局使用
+  纯 C，不新增帧缓冲、每卡控件树、动画任务或运行时图片下载。
+
+实体 NFC/Tile Reader 接入仍由外部完成。中继提供单卡观察事件，多贴片效果
+需要读卡器或主机发送真实的 `tile.stack.state`。
+
+生成几何预览（空闲、单卡、三卡和四卡，使用固件矩形绘图代码，不含 LVGL 文字）：
+
+```bash
+cc -std=c11 -Imain tools/preview_passport_scene.c main/passport_scene.c \
+    -o /tmp/preview_passport_scene
+mkdir -p build
+/tmp/preview_passport_scene > build/passport-scene.ppm
+```
+
+`tests/test_passport_scene.c` 覆盖计时边界、浮层暂停、重复观察、冲突状态保留、
+移除重放、移除后本地读卡器接入、非法标识、超限卡组，以及每帧和每个选中位置的
+矩形边界。Bridge 测试检查观察事件先于 IDE 调用发送。实机验收仍需真实读卡事件、
+屏幕检查和录音并发验证。
+
 范围：在当前 Passport 硬件基线上，交付 Wear 模式和 Compose 模式的页面布局、
 页面级状态迁移、协议扩展和按键手势。非 UI 逻辑（Host 侧 Skill Registry、
 热更新引擎、Tile Reader 硬件、机械设计）不在本文档范围内，归属 Host 侧

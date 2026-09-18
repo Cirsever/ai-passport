@@ -81,10 +81,20 @@ Passport Service Core
 
 ## 4. 服务协议
 
+协议 v2 的会话路由、审批回执和自动伙伴资源传输见
+[v2 通信契约](passport-v2-protocol.zh_CN.md)。下列 protocol-1 消息继续作为
+单会话兼容路径。
+
 USB 使用每行一个 UTF-8 JSON 对象，并带 `@passport ` 前缀。没有此前缀的启动日志
 由 Bridge 忽略。示例：
 
 主机发送给 Passport：
+
+NFC 中继在启动 IDE 之前发送 `{"type":"nfc.present","card_id":"card-1"}`，
+让屏幕立即播放动画。`card_id` 必须符合 `[A-Za-z0-9_:.-]{1,47}`。
+该观察事件不授权 Goal 会话、不绑定会话身份，也不生成动作。重复观察不会重播动画。
+多卡布局只来自 `tile.stack.state`；就绪状态来自 `context.composed` /
+`goal.mode.state`，不能由动画计时器决定。
 
 ```json
 {"type":"task.state","task_id":"runtime-1","state":"running","progress":42,"summary":"Refactoring tracing"}

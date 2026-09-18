@@ -5,6 +5,62 @@
 # AI Passport Physical Skills MVP — Page Design
 
 Status: MVP design, derived from `AI_Passport_Physical_Skills_MVP_Design_v0.1`.
+
+For the current visual design and complete screen gallery, see
+[Passport pixel companion v2](passport-pixel-ui-design.md). Its approval,
+battery, session and P1 pet specifications supersede the corresponding roadmap
+mockups here. The implemented-scene record below remains the previous baseline.
+
+## Implemented pixel scene (2026-09)
+
+This section supersedes the text-only home/stack mockups below. Other mockups
+remain roadmap proposals, including mode lock, skill detail, reload toast and
+the full-body disconnect page.
+
+- A 240×320 pixel scene uses a blue status header, cream cards, hard shadows,
+  a pixel robot, role colors and a reader dock. The header is 43 px; the body
+  occupies y=47–263; the two-line button footer occupies y=268–316.
+- `nfc.present` (`card_id` matching `[A-Za-z0-9_:.-]{1,47}`)
+  is sent by the bridge **before** starting the IDE adapter. It is display-only:
+  it does not enable goal mode, enqueue an action or fabricate a tile stack.
+- The first observed card scans, then stays prominent for 3200 ms total.
+  A changed multi-card stack animates for 1400 ms; entries stagger by 120 ms.
+  The settled card/stack remains visible. Identical snapshots do not restart
+  animation. Removal and re-addition re-arm it.
+- `tile.stack.state` is authoritative for up to four overlapping cards:
+  index 0 is the front/top card. Down cycles the highlighted tile; its role,
+  identity and revision appear below the stack. Repeated NFC taps never count
+  as additional tiles. Empty stacks clear the stack scene.
+- Animation completion is not host success. Only `goal.mode.state` or
+  `context.composed` confirms readiness. Pending, conflict and offline states
+  remain distinguishable. Task progress comes from `task.state.progress`.
+- Approval and voice overlays take priority; scene time pauses while covered
+  or on the task detail page. Voice completion remains visible for 2 s.
+- A single custom LVGL drawing object uses the existing 100 ms refresh timer.
+  Scene state and rectangle geometry are pure C; there is no framebuffer,
+  per-card LVGL object tree, extra animation task or runtime image download.
+
+Physical NFC/Tile Reader integration is still external to this firmware.
+The relay provides a single-card observation; multiple tiles require real
+`tile.stack.state` input from the reader/host.
+
+Geometry preview (idle, single, three and four cards; firmware rectangle
+renderer, without LVGL labels):
+
+```bash
+cc -std=c11 -Imain tools/preview_passport_scene.c main/passport_scene.c \
+    -o /tmp/preview_passport_scene
+mkdir -p build
+/tmp/preview_passport_scene > build/passport-scene.ppm
+```
+
+Host coverage in `tests/test_passport_scene.c` includes timing boundaries,
+overlay pause, duplicate observations, conflict preservation, removal/re-add,
+local-reader admission after removal, invalid IDs, overflow stacks and
+rectangle bounds across every frame and selection. Bridge tests verify that
+the observation reaches the wire before IDE dispatch. Device acceptance still
+requires real reader events, screen inspection and concurrent audio capture.
+
 Scope: page layout, page-level state transitions, protocol additions, and
 button gestures for Wear Mode and Compose Mode on the current Passport
 hardware baseline. Non-UI logic (host-side Skill Registry, hot-reload engine,

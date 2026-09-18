@@ -30,8 +30,10 @@
   形态，一次真实贴卡应恰好触发一条 `goal.mode.request`，第二张 UID 被
   wire 上拒绝。
 - [x] 选择第一个本地 IDE 适配器：Codex（决策记录在
-  [`ide-adapter-decision.zh_CN.md`](ide-adapter-decision.zh_CN.md)）。Trae 暂缓，
-  直到它给出可脚本化的本地控制面。
+  [`ide-adapter-decision.zh_CN.md`](ide-adapter-decision.zh_CN.md)）。Trae 现在
+  也有一份最小的 fire-and-forget 适配器（`tools/trae_adapter.py`，
+  `passport_bridge.py --trae`）；不承诺双向、审批、会话保持能力，仅覆盖
+  "贴卡→拉起 Trae Chat 窗口→追加 utterance"最小闭环。生产路径仍以 Codex 为准。
 - [x] 实现 `goal.mode.state`、任务进度和会话身份的适配器契约：
   `tools/codex_adapter.py` 通过 MCP `tools/call codex` + `codex-reply`
   完成，Host tests 在 `tests/test_codex_adapter.py`。审批往返和实机端到端
@@ -40,10 +42,20 @@
   --codex-model/...]`，设备侧每条 `@passport ` 帧走 `CodexAdapter.handle`，
   产出的帧走既有 `send_json`。胶水层测试
   `tests/test_bridge_codex_glue.py`。
+- [x] Codex approval 通道从 stub 换成真链路：`CodexMcpClient` 现在
+  分辨 server-initiated JSON-RPC request（`elicitation/create`），
+  `CodexAdapter.drain_pending_approvals()` 把它翻成
+  `@passport approval.request` 送到设备；操作员的
+  `approval.decision`（`approve` / `reject`）通过
+  `respond_to_server_request` 反向应答，映射到 Codex 的
+  `ReviewDecision`（`approved` / `denied`）。`passport_bridge.py`
+  的 USB / TCP 主循环每 tick drain 一次。测试
+  `tests/test_codex_adapter.py::ApprovalRoundTripsThroughElicitation`
+  锁定 4 个场景（正向、负向、未知 request_id、不支持的 server 方法）。
 - [x] Goal 模式语音 stub：设备侧 OK 长按发一对
   `voice.capture.start` / `voice.capture.stop`，Codex 适配器把它当一次
-  utterance 处理。真实音频 worker + STT 保留在切片 D + P0-5
-  （见 `physical-skills-mvp-design.zh_CN.md`）。
+  utterance 处理。切片 D 已用真实音频 worker 和下文的主机 STT 接入边界
+  替换这条 stub（见 `physical-skills-mvp-design.zh_CN.md`）。
 
 ## P1——硬件和交互验证
 
@@ -71,6 +83,12 @@
 - [x] 每次修改传输或音频后执行完整验证门禁：由结构强制 —— `./tools/validate.sh`
   是唯一入口，同时跑 static + firmware；开发者可以按需只跑 `--static` /
   `--firmware`。
+- [x] 每次实机烧录前跑 `./tools/validate.sh --preflash`：门禁跑完整
+  static + firmware，校验 `build/FoloToy-AI-Passport-full.bin` 是本次运行
+  的新鲜产物，警告残留的 app bin，并从 `flasher_args.json` 打印精确
+  esptool 命令。已写入 `AGENTS.md` 与 `AGENTS.zh_CN.md` 的硬约束。
+- [x] Slice F 三个 Major 缺陷回归静态断言 + 阈值常量收口 + CJK 白名单
+  自动扫描，见 `tools/validate.sh check_regression_asserts`。
 - [x] 每次交付都分开报告设备测试结果和构建结果：`AGENTS.md` 里已经规范化
   四段格式（Build / Host tests / Device tests / Unverified），
   `passport-service-status.zh_CN.md` 里也遵循同一规矩。
@@ -96,9 +114,27 @@
 - [ ] 实机验收：烧录后用 mock CLI 完整走一遍 随身首页 ↔ 随身任务 ↔
   组合堆叠，确认审批浮层、事件日志、组合选择都能正确显示中文，
   没有缺字。**需要操作员** —— 脚本 `tools/acceptance_slice_f.py`。
-- [ ] 语音 worker（`voice.capture.*`）与真实 `WEAR.VOICE` 浮层。当前 stub
-  已经上线（见前面 `send_voice_capture_burst`），真实音频 worker 仍属
-  切片 D。
+- [x] 语音 worker（`voice.capture.*`）与真实 `WEAR.VOICE` 浮层：Slice D
+  MVP 落地。`main/passport_voice_vad.[ch]` 纯 C VAD（峰值幅度 + 静音
+  hangover + 硬顶时长，host tests `tests/test_passport_voice_vad.c` 7 项
+  覆盖）。`main/passport_voice_worker.[ch]` 是独立 FreeRTOS task：长按
+  OK 触发一次录音，每 10 ms PCM16 分片 base64 送
+  `voice.capture.audio` 帧，松开 OK 后立即停止；静音 800 ms 和硬顶时长
+  仍作为兜底。松键停止已通过实机验证：两次录音分别在 420 ms / 42 分片、
+  3,180 ms / 318 分片时以 `reason:"manual"` 结束。停止时发
+  `voice.capture.stop`，附占位 text
+  `[voice N chunks Xms peak=Y]` 让
+  Codex/Trae adapter 在真实 STT 落地前也能演示。UI 层：`demo_passport_service`
+  在 hint 行显示 `录音中 XXs [####------]` 电平表，用 ASCII 字符避免
+  CJK 子集膨胀；录音结束后显示“录音已停止”两秒，再自动恢复原导航提示。
+  该反馈窗口是纯 C 状态机，有 Host tests 覆盖，也已通过实机确认。字体子集
+  从 126 → 128 字（新增 `录`、`音`）。
+- [x] 主机侧 STT 接入边界：`tools/passport_stt.py` 将有界且校验通过的
+  `voice.capture.audio` 分片重组为临时 PCM16 WAV，在 stop 帧送入 Codex
+  或 Trae 前执行操作员配置的 `--stt-command`。命令必须包含 `{wav}`，
+  并在 stdout 输出纯转写文本。转写失败时保留设备诊断文本，临时 WAV 会被
+  删除。离线测试见 `tests/test_passport_stt.py`。具体 STT 引擎和模型仍需
+  操作员配置；当前工作站未安装 Whisper 可执行文件和模型。
 - [x] `WEAR.APPROVAL` 60 秒超时和 `WEAR.DISCONNECTED` 过期横幅：
   `passport_service_tick()` 对挂起审批和链路空闲各自计时，Demo 层在链路
   空闲超过 3 秒时展示整屏"与主机失联 · 过期起自 xx 秒前" + 提示条
@@ -108,8 +144,12 @@
 
 1. 操作员完成中文页面视觉验收（`tools/acceptance_slice_f.py`）。
 2. 用真实手机跑一次 NFC 中继端到端（选一个中继方案）。
-3. 用 bridge `--codex` 跑一次真实 Codex 会话，抓 approval notification 流
-   并替换 `tools/codex_adapter.py::_forward_approval_decision` 里的 stub。
-4. 切片 D 音频 worker（真实 `voice.capture.*` 载荷 + `WEAR.VOICE` 浮层）。
+3. 用 bridge `--codex` 跑一次真实 Codex 会话，验证 `elicitation/create`
+   审批往返（当前 Codex CLI + ChatGPT 账号的模型 gate 需要先解决：CLI 报
+   `gpt-5.6-luna` 需更新 CLI，`gpt-5` 报 ChatGPT 账号不支持——升级 CLI
+   或切到 API key）。
+4. 通过 `--stt-command` 配置并实测具体 STT 引擎和模型，例如 argv 中包含
+   `{wav}`、stdout 只输出转写文本的本地 whisper.cpp 命令。Bridge 的音频
+   重组和失败降级已实现；当前工作站没有 Whisper 可执行文件或模型。
 5. 把实测结果更新回本清单和
    [`passport-service-status.zh_CN.md`](passport-service-status.zh_CN.md)。

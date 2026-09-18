@@ -1,0 +1,38 @@
+{
+  "size": [
+    240,
+    320
+  ],
+  "states": [
+    "01-home",
+    "02-scan",
+    "03-ready",
+    "04-stack",
+    "05-task",
+    "06-offline",
+    "07-approval",
+    "08-approval-details",
+    "09-allowed",
+    "10-denied",
+    "11-expired",
+    "12-voice",
+    "13-sessions",
+    "14-switching",
+    "15-switched",
+    "16-unavailable",
+    "17-pet-sync",
+    "18-pet-synced",
+    "19-low-battery",
+    "20-battery-unknown",
+    "21-readonly",
+    "22-voice-stopped",
+    "23-pet-fallback",
+    "24-no-sessions"
+  ],
+  "languages": [
+    "zh",
+    "en"
+  ],
+  "status": "Design proposal, not firmware capture",
+  "generator": "tools/render_passport_design.py"
+}

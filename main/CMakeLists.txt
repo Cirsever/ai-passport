@@ -13,15 +13,19 @@ idf_component_register(
          "demo_ble.c"
          "demo_low_power.c"
          "passport_service.c"
+         "passport_v2_state.c"
          "passport_ui_model.c"
+         "passport_scene.c"
          "passport_line.c"
          "passport_usb_frame.c"
          "passport_transport_usb.c"
          "passport_transport_tcp.c"
+         "passport_voice_vad.c"
+         "passport_voice_worker.c"
          "demo_passport_service.c"
          "did_tibo_rest.c"
          "demo_did_tibo_rest.c"
          "fonts/ui_cn_16.c"
     INCLUDE_DIRS "." "fonts"
-    REQUIRES bsp bt esp_driver_usb_serial_jtag esp_event esp_hw_support esp_netif esp_timer esp_wifi nvs_flash
+    REQUIRES bsp bt esp_driver_usb_serial_jtag esp_event esp_hw_support esp_netif esp_timer esp_wifi mbedtls nvs_flash
 )

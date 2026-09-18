@@ -154,7 +154,18 @@ static bool parse_goal_mode_state(const char *line, passport_service_snapshot_t 
     if (!get_string(line, "mode", mode, sizeof(mode)) || strcmp(mode, "goal") != 0 ||
         !get_string(line, "state", mode_state, sizeof(mode_state)) ||
         !get_string(line, "card_id", card_id, sizeof(card_id))) return false;
-    if (strcmp(card_id, state->goal_card_id) != 0) return false;
+    /* One-card admission: if no card has been registered yet (no physical
+     * NFC reader and no prior demo_passport_service_nfc_card() call), the
+     * first goal.mode.state we see on the wire adopts its card_id as the
+     * active card. Once bound, any goal.mode.state carrying a different
+     * card_id is rejected. This keeps the "second card rejected" rule from
+     * passport-service-architecture.md while unblocking the NFC-relay flow
+     * where the device itself never sees the raw card tap. */
+    if (state->goal_card_id[0] == '\0') {
+        copy_bounded(state->goal_card_id, sizeof(state->goal_card_id), card_id);
+    } else if (strcmp(card_id, state->goal_card_id) != 0) {
+        return false;
+    }
 
     if (strcmp(mode_state, "enabled") == 0) {
         if (!get_string(line, "ide", ide, sizeof(ide))) return false;
@@ -242,6 +253,17 @@ static bool parse_tile_stack(const char *line, passport_service_snapshot_t *stat
         cursor = object_end + 1;
     }
 
+    if (next_object(cursor, array_end)) return false;
+    bool changed = count != state->stack_count ||
+                   strcmp(context_id, state->context_id) != 0;
+    for (size_t i = 0; i < count && !changed; i++) {
+        changed = memcmp(&stack[i], &state->stack[i], sizeof(stack[i])) != 0;
+    }
+    if (changed) {
+        state->stack_generation++;
+        state->compose_confirmed = false;
+        state->compose_duration_ms = 0;
+    }
     copy_bounded(state->context_id, sizeof(state->context_id), context_id);
     for (size_t i = 0; i < count; i++) state->stack[i] = stack[i];
     for (size_t i = count; i < PASSPORT_SERVICE_STACK_MAX; i++) {
@@ -249,8 +271,11 @@ static bool parse_tile_stack(const char *line, passport_service_snapshot_t *stat
     }
     state->stack_count = count;
     if (state->stack_selected >= count) state->stack_selected = 0;
-    state->compose_status = count == 0 ? PASSPORT_COMPOSE_EMPTY : PASSPORT_COMPOSE_OK;
+    if (changed) {
+        state->compose_status = count == 0 ? PASSPORT_COMPOSE_EMPTY : PASSPORT_COMPOSE_OK;
+    }
     if (count == 0) {
+        state->nfc_card_id[0] = '\0';
         state->compose_duration_ms = 0;
         state->context_id[0] = '\0';
     }
@@ -271,6 +296,7 @@ static bool parse_context_composed(const char *line, passport_service_snapshot_t
     if (strcmp(status, "ok") == 0) state->compose_status = PASSPORT_COMPOSE_OK;
     else if (strcmp(status, "conflict") == 0) state->compose_status = PASSPORT_COMPOSE_CONFLICT;
     else return false;
+    state->compose_confirmed = true;
     state->compose_duration_ms = duration;
     return true;
 }
@@ -295,7 +321,17 @@ passport_service_result_t passport_service_apply_line(passport_service_t *servic
     static passport_service_snapshot_t next;
     next = service->state;
     bool parsed = false;
-    if (has_type(line, "task.state")) parsed = parse_task_state(line, &next);
+    if (has_type(line, "nfc.present")) {
+        char card_id[PASSPORT_SERVICE_ID_MAX];
+        parsed = get_string(line, "card_id", card_id, sizeof(card_id));
+        for (size_t i = 0; parsed && card_id[i]; i++) {
+            unsigned char ch = (unsigned char)card_id[i];
+            parsed = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                     (ch >= '0' && ch <= '9') || strchr("-_:.", ch) != NULL;
+        }
+        if (parsed) copy_bounded(next.nfc_card_id, sizeof(next.nfc_card_id), card_id);
+    }
+    else if (has_type(line, "task.state")) parsed = parse_task_state(line, &next);
     else if (has_type(line, "task.event")) parsed = parse_task_event(line, &next);
     else if (has_type(line, "approval.request")) parsed = parse_approval(line, &next);
     else if (has_type(line, "goal.mode.state")) parsed = parse_goal_mode_state(line, &next);
@@ -362,6 +398,7 @@ passport_service_result_t passport_service_load_goal_card(passport_service_t *se
         return PASSPORT_SERVICE_REJECTED;
     }
     copy_bounded(service->state.goal_card_id, sizeof(service->state.goal_card_id), card_id);
+    copy_bounded(service->state.nfc_card_id, sizeof(service->state.nfc_card_id), card_id);
     service->state.goal_mode_state = PASSPORT_GOAL_REQUESTED;
     memset(&service->action, 0, sizeof(service->action));
     service->action.type = PASSPORT_ACTION_GOAL_MODE_REQUEST;
@@ -462,4 +499,3 @@ void passport_service_tick(passport_service_t *service, uint32_t elapsed_ms) {
         }
     }
 }
-

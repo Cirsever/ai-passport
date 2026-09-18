@@ -2,9 +2,12 @@
 """Collect Chinese glyphs needed by the Passport UI model.
 
 Scans main/passport_ui_model.c and main/demo_passport_service.c for CJK
-characters, plus a small hand-picked pool of runtime strings that the manual
-mock CLI (tools/passport_bridge.py) is expected to emit. Prints a
-space-free sorted string ready to hand to lv_font_conv --symbols.
+characters, plus tools/passport_bridge.py and tools/acceptance_slice_f.py so
+mock frames the operator sends via the guided acceptance script also render on
+the physical display. A small hand-picked pool of runtime strings covers
+narrative words the mock CLI is expected to emit interactively but does not
+literally embed. Prints a space-free sorted string ready to hand to
+lv_font_conv --symbols.
 
 Also prints the count to stderr for a quick sanity check.
 """
@@ -19,9 +22,12 @@ RUNTIME_POOL = (
     # Task / progress narrative from the mock CLI examples.
     "重构任务跨包分析器扫描开始完成运行中进度补丁草稿就绪测试步骤"
     # Approval and event summaries.
-    "写入文件个数据结构冲突错误警告"
+    "写入文件个数据结构冲突错误警告发现处问题"
     # Compose demo tiles / status text.
     "组合切片版本号会话上下文项目主体审查技能"
+    # Header / hint keywords that show up on device when acceptance narrates
+    # them in Chinese ("顶栏", "首页", etc.).
+    "顶栏首页事件状态"
 )
 
 
@@ -53,6 +59,11 @@ def main() -> int:
     defaults = [
         root / "main" / "passport_ui_model.c",
         root / "main" / "demo_passport_service.c",
+        # Acceptance / bridge mock CLI strings render on-device when the
+        # operator pushes them via ! commands. Scan them so the font subset
+        # stays synchronized with the guided test flow.
+        root / "tools" / "acceptance_slice_f.py",
+        root / "tools" / "passport_bridge.py",
     ]
     extras = [root / rel for rel in (args.source or [])]
     sources = defaults + extras

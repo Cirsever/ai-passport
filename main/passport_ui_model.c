@@ -4,6 +4,41 @@
 #include <stdio.h>
 #include <string.h>
 
+void passport_voice_feedback_init(passport_voice_feedback_t *feedback) {
+    if (!feedback) return;
+    memset(feedback, 0, sizeof(*feedback));
+}
+
+passport_voice_feedback_view_t passport_voice_feedback_update(
+    passport_voice_feedback_t *feedback, bool active, bool completed,
+    uint32_t elapsed_ms) {
+    if (!feedback) return PASSPORT_VOICE_FEEDBACK_HIDDEN;
+
+    if (active) {
+        feedback->completed_seen = false;
+        feedback->completed_elapsed_ms = 0;
+        return PASSPORT_VOICE_FEEDBACK_ACTIVE;
+    }
+    if (!completed) {
+        passport_voice_feedback_init(feedback);
+        return PASSPORT_VOICE_FEEDBACK_HIDDEN;
+    }
+    if (!feedback->completed_seen) {
+        feedback->completed_seen = true;
+        feedback->completed_elapsed_ms = 0;
+        return PASSPORT_VOICE_FEEDBACK_COMPLETED;
+    }
+    if (feedback->completed_elapsed_ms >= PASSPORT_VOICE_COMPLETED_VISIBLE_MS ||
+        elapsed_ms >= PASSPORT_VOICE_COMPLETED_VISIBLE_MS -
+                          feedback->completed_elapsed_ms) {
+        feedback->completed_elapsed_ms = PASSPORT_VOICE_COMPLETED_VISIBLE_MS;
+        return PASSPORT_VOICE_FEEDBACK_HIDDEN;
+    }
+
+    feedback->completed_elapsed_ms += elapsed_ms;
+    return PASSPORT_VOICE_FEEDBACK_COMPLETED;
+}
+
 static const char *task_name_cn(passport_task_state_t state) {
     switch (state) {
     case PASSPORT_TASK_RUNNING: return "运行中";
@@ -44,7 +79,7 @@ static const char *link_label(bool transport_ready,
     /* Use protocol-frame liveness, not the DTR bit. Matches the disconnected
      * banner threshold near the end of passport_ui_model_build(). */
     if (snapshot->link_idle_ms < 0) return "未连接";
-    if (snapshot->link_idle_ms > 30000) return "断线";
+    if (snapshot->link_idle_ms > PASSPORT_SERVICE_LINK_IDLE_DISCONNECT_MS) return "断线";
     return "已连接";
 }
 
@@ -223,10 +258,7 @@ void passport_ui_model_build(const passport_service_snapshot_t *snapshot,
     /* No full-body disconnected banner. Liveness state is conveyed through
      * the header (`link_label` renders 未连接 / 已连接 / 断线 based on
      * link_idle_ms) and the body keeps rendering the last known snapshot
-     * without covering it. The MVP acceptance workflow types manual mock
-     * frames with pauses well beyond any reasonable idle threshold, so a
-     * full-body warning is more disruptive than informative. */
-    (void)snapshot;
+     * without covering it. */
 
     build_legacy_mirrors(snapshot, model);
 }

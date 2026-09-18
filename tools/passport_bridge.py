@@ -17,6 +17,7 @@ import pathlib
 import queue
 import re
 import select
+import shlex
 import socket
 import sys
 import termios
@@ -62,6 +63,32 @@ def _load_codex_adapter() -> Any:
     return module
 
 
+def _load_trae_adapter() -> Any:
+    """Load tools/trae_adapter.py the same way; separate loader keeps the two
+    IDE integrations independent (either can be missing without breaking the
+    other)."""
+    here = pathlib.Path(__file__).resolve().parent
+    spec = importlib.util.spec_from_file_location(
+        "trae_adapter", here / "trae_adapter.py")
+    if not spec or not spec.loader:
+        raise RuntimeError("tools/trae_adapter.py not found next to the bridge")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_companion() -> Any:
+    here = pathlib.Path(__file__).resolve().parent
+    spec = importlib.util.spec_from_file_location(
+        "passport_companion", here / "passport_companion.py")
+    if not spec or not spec.loader:
+        raise RuntimeError("tools/passport_companion.py not found next to the bridge")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["passport_companion"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 class CodexPipeline:
     """Optional device → Codex → device tap for --codex mode.
 
@@ -73,25 +100,125 @@ class CodexPipeline:
     """
 
     def __init__(self, cwd: str, model: str | None, sandbox: str,
-                 approval_policy: str) -> None:
+                 approval_policy: str, transcriber: Any | None = None) -> None:
         module = _load_codex_adapter()
         self._client = module.CodexMcpClient(["codex", "mcp-server"])
         info = self._client.start()
         version = info.get("serverInfo", {}).get("version", "unknown")
         print(f"codex mcp-server ready (version={version})", flush=True)
+        self._session_client = module.CodexAppServerClient(
+            ["codex", "app-server", "--stdio"])
+        self._session_client.start()
+        print("codex app-server ready (exact thread routing)", flush=True)
         self._adapter = module.CodexAdapter(
             self._client, cwd=cwd, model=model, sandbox=sandbox,
             approval_policy=approval_policy,
+            session_client=self._session_client,
         )
+        self._transcriber = transcriber
+        companion = _load_companion()
+        self._companion_poller = companion.CompanionPoller()
+        self._companion_transfer = companion.CompanionTransfer()
 
     def dispatch(self, device_frame: dict[str, Any]) -> list[dict[str, Any]]:
-        return self._adapter.handle(device_frame)
+        if device_frame.get("type") == "companion.ack":
+            self._companion_transfer.acknowledge(device_frame)
+        return self._adapter.handle(self._prepare_voice_frame(device_frame))
+
+    def _prepare_voice_frame(self,
+                             device_frame: dict[str, Any]) -> dict[str, Any]:
+        if self._transcriber is None:
+            return device_frame
+        prepared = self._transcriber.process(device_frame)
+        error = self._transcriber.take_error()
+        if error:
+            print(f"[stt] {error}; using device diagnostic text",
+                  file=sys.stderr, flush=True)
+        return prepared
+
+    def drain_approvals(self) -> list[dict[str, Any]]:
+        """Return any Passport `approval.request` frames the Codex adapter has
+        queued from server-initiated elicitation/create requests. The main run
+        loop should push these to the device on the same cadence as
+        notifications so the operator gets prompt approval UI."""
+        emitted: list[dict[str, Any]] = []
+        try:
+            self._adapter.drain_pending_approvals(emitted.append)
+            self._adapter.drain_app_server_approvals(emitted.append)
+        except Exception as exc:  # broad: never crash the run loop
+            emitted.append({"type": "bridge.error", "source": "codex_adapter",
+                            "detail": f"drain_approvals failed: {exc}"})
+        return emitted
+
+    def drain_idle(self) -> list[dict[str, Any]]:
+        """Return at most one automatic companion transfer frame."""
+        route = self._adapter.active_route()
+        if route is None:
+            return []
+        try:
+            asset = self._companion_poller.poll()
+            if asset is not None:
+                self._companion_transfer.start(asset)
+            frame = self._companion_transfer.next_frame(route)
+            return [frame] if frame is not None else []
+        except Exception as exc:
+            print(f"[companion] {exc}; keeping current device asset",
+                  file=sys.stderr, flush=True)
+            return []
 
     def close(self) -> None:
         try:
             self._client.stop()
         except Exception:
             pass
+        try:
+            self._session_client.stop()
+        except Exception:
+            pass
+
+
+class TraePipeline:
+    """Optional device → Trae → device tap for --trae mode.
+
+    Wire contract identical to CodexPipeline: ``dispatch(frame)`` returns
+    Passport frames the bridge forwards to the device; ``drain_approvals()``
+    is a no-op today because Trae has no scriptable approval channel.
+
+    Trae's CLI is fire-and-forget: it drops a prompt into the current Trae
+    window and exits. That is enough to unblock the "operator taps a card,
+    Passport lights up, Trae window opens" demo, but nothing about the
+    session id, task events, or approval round-trip is real — every emitted
+    Passport frame is synthesized by the adapter, mirrored to whatever the
+    Codex path would emit so the device UI stays identical.
+    """
+
+    def __init__(self, cwd: str, binary: str | None, mode: str,
+                 transcriber: Any | None = None) -> None:
+        module = _load_trae_adapter()
+        resolved = module._resolve_binary(binary)
+        client = module.TraeCliClient(resolved, mode=mode)
+        print(f"trae adapter ready (binary={resolved}, mode={mode})", flush=True)
+        self._adapter = module.TraeAdapter(client, cwd=cwd)
+        self._transcriber = transcriber
+
+    def dispatch(self, device_frame: dict[str, Any]) -> list[dict[str, Any]]:
+        if self._transcriber is not None:
+            device_frame = self._transcriber.process(device_frame)
+            error = self._transcriber.take_error()
+            if error:
+                print(f"[stt] {error}; using device diagnostic text",
+                      file=sys.stderr, flush=True)
+        return self._adapter.handle(device_frame)
+
+    def drain_approvals(self) -> list[dict[str, Any]]:
+        return []
+
+    def drain_idle(self) -> list[dict[str, Any]]:
+        return []
+
+    def close(self) -> None:
+        # trae-cn chat spawns short-lived subprocesses; nothing to release.
+        pass
 
 
 class NfcRelayServer:
@@ -300,7 +427,12 @@ def _mock_command(raw_line: str) -> list[dict[str, Any]] | None:
 
 
 def encode_usb_line(message: dict[str, Any]) -> bytes:
-    payload = json.dumps(message, separators=(",", ":"))
+    # ensure_ascii=False keeps CJK payloads as UTF-8 bytes on the wire. The
+    # firmware's line parser rejects any backslash inside a string field
+    # (see passport_service.c :: get_string), so a \uXXXX escape from the
+    # default ensure_ascii=True path is treated as unparseable and every
+    # frame gets bounced with protocol.reject.
+    payload = json.dumps(message, ensure_ascii=False, separators=(",", ":"))
     return f"{USB_FRAME_PREFIX}{payload}\n".encode("utf-8")
 
 
@@ -319,10 +451,16 @@ def send_json(connection: socket.socket, message: dict[str, Any]) -> None:
         payload = encode_usb_line(message)
         display_payload = payload.decode("utf-8").rstrip()
     else:
-        payload = (json.dumps(message, separators=(",", ":")) + "\n").encode("utf-8")
+        # Match encode_usb_line: never emit ASCII escapes over the wire, so the
+        # firmware's backslash-rejecting parser accepts CJK payloads verbatim.
+        payload = (json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
         display_payload = payload.decode("utf-8").rstrip()
     connection.sendall(payload)
     print(f"> {display_payload}", flush=True)
+
+
+class UsbDisconnected(RuntimeError):
+    """Raised when the USB Serial/JTAG endpoint stops responding mid-session."""
 
 
 class UsbConnection:
@@ -336,8 +474,18 @@ class UsbConnection:
         return self
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
-        termios.tcsetattr(self.fd, termios.TCSANOW, self._saved_attrs)
-        os.close(self.fd)
+        # If the USB device was unplugged mid-run the fd is already dead;
+        # restoring termios attributes then raises Errno 6 and hides the
+        # original traceback. Swallow both, they only matter for line
+        # discipline restoration on a still-attached tty.
+        try:
+            termios.tcsetattr(self.fd, termios.TCSANOW, self._saved_attrs)
+        except (OSError, termios.error):
+            pass
+        try:
+            os.close(self.fd)
+        except OSError:
+            pass
 
     def fileno(self) -> int:
         return self.fd
@@ -352,17 +500,22 @@ class UsbConnection:
             self._buffer.extend(os.read(self.fd, 4096))
         except BlockingIOError:
             return []
+        except OSError as error:
+            # Device unplugged or reset mid-session. Surface it as a clean
+            # sentinel so the run loop can print a friendly message and exit
+            # instead of a raw traceback.
+            raise UsbDisconnected(f"USB Serial/JTAG read failed: {error}") from error
         lines = self._buffer.split(b"\n")
         self._buffer = bytearray(lines.pop())
         decoded: list[str] = []
         for raw_line in lines:
             message = decode_usb_line(raw_line.decode("utf-8", errors="replace").rstrip("\r"))
             if message is not None:
-                decoded.append(json.dumps(message, separators=(",", ":")))
+                decoded.append(json.dumps(message, ensure_ascii=False, separators=(",", ":")))
         return decoded
 
 
-def _apply_pipeline(connection: Any, pipeline: CodexPipeline | None,
+def _apply_pipeline(connection: Any, pipeline: "CodexPipeline | TraePipeline | None",
                     raw_line: str) -> None:
     """Feed one device-side frame line through the optional Codex pipeline.
 
@@ -384,7 +537,14 @@ def _apply_pipeline(connection: Any, pipeline: CodexPipeline | None,
 
 
 def _drain_nfc_outbox(connection: Any,
-                      outbox: "queue.Queue[dict[str, Any]] | None") -> None:
+                      outbox: "queue.Queue[dict[str, Any]] | None",
+                      pipeline: "CodexPipeline | TraePipeline | None" = None) -> None:
+    """Route every queued NFC-relay frame the same way a real card tap would
+    flow through the system.
+
+    Send the display-only observation before synchronous IDE dispatch, which
+    may take seconds. The request itself belongs to the IDE adapter.
+    """
     if outbox is None:
         return
     while True:
@@ -392,17 +552,37 @@ def _drain_nfc_outbox(connection: Any,
             frame = outbox.get_nowait()
         except queue.Empty:
             return
-        send_json(connection, frame)
+        if frame.get("type") == "goal.mode.request":
+            send_json(connection, {"type": "nfc.present",
+                                   "card_id": frame["card_id"]})
+        if pipeline is None:
+            continue
+        try:
+            for reply in pipeline.dispatch(frame):
+                send_json(connection, reply)
+        except Exception as exc:  # broad: never crash the run loop
+            send_json(connection, {
+                "type": "bridge.error",
+                "source": "nfc_relay_pipeline",
+                "detail": f"pipeline dispatch failed: {exc}",
+            })
 
 
-def run(host: str, port: int, pipeline: CodexPipeline | None = None,
+def run(host: str, port: int, pipeline: "CodexPipeline | TraePipeline | None" = None,
         nfc_outbox: "queue.Queue[dict[str, Any]] | None" = None) -> int:
     with socket.create_connection((host, port), timeout=10) as connection:
         connection.setblocking(False)
 
         print("Connected. Type a JSON message and press Enter; Ctrl-D exits.", flush=True)
         while True:
-            _drain_nfc_outbox(connection, nfc_outbox)
+            _drain_nfc_outbox(connection, nfc_outbox, pipeline=pipeline)
+            if pipeline is not None:
+                approvals = pipeline.drain_approvals()
+                for approval_frame in approvals:
+                    send_json(connection, approval_frame)
+                if not approvals:
+                    for idle_frame in pipeline.drain_idle():
+                        send_json(connection, idle_frame)
             readable, _, _ = select.select([connection, sys.stdin], [], [], 0.25)
             if connection in readable:
                 data = connection.recv(4096)
@@ -430,14 +610,34 @@ def run(host: str, port: int, pipeline: CodexPipeline | None = None,
                 send_json(connection, message)
 
 
-def run_usb(path: str, pipeline: CodexPipeline | None = None,
+def run_usb(path: str, pipeline: "CodexPipeline | TraePipeline | None" = None,
             nfc_outbox: "queue.Queue[dict[str, Any]] | None" = None) -> int:
     with UsbConnection(path) as connection:
         print(f"Connected to USB Serial/JTAG {path}. Type a JSON message, or a mock command (!help), and press Enter; Ctrl-D exits.", flush=True)
         while True:
-            _drain_nfc_outbox(connection, nfc_outbox)
+            _drain_nfc_outbox(connection, nfc_outbox, pipeline=pipeline)
+            if pipeline is not None:
+                approvals = pipeline.drain_approvals()
+                for approval_frame in approvals:
+                    try:
+                        send_json(connection, approval_frame)
+                    except OSError as error:
+                        print(f"[warn] USB write failed: {error}. Reconnect the device and rerun.", file=sys.stderr, flush=True)
+                        return 1
+                if not approvals:
+                    for idle_frame in pipeline.drain_idle():
+                        try:
+                            send_json(connection, idle_frame)
+                        except OSError as error:
+                            print(f"[warn] USB write failed: {error}. Reconnect the device and rerun.", file=sys.stderr, flush=True)
+                            return 1
             readable, _, _ = select.select([sys.stdin], [], [], 0.05)
-            for raw_line in connection.read_lines():
+            try:
+                lines = connection.read_lines()
+            except UsbDisconnected as error:
+                print(f"[warn] {error}. Reconnect the device and rerun.", file=sys.stderr, flush=True)
+                return 1
+            for raw_line in lines:
                 print(f"< {raw_line}", flush=True)
                 _apply_pipeline(connection, pipeline, raw_line)
             if sys.stdin in readable:
@@ -448,14 +648,22 @@ def run_usb(path: str, pipeline: CodexPipeline | None = None,
                 mock_messages = _mock_command(stripped)
                 if mock_messages is not None:
                     for message in mock_messages:
-                        send_json(connection, message)
+                        try:
+                            send_json(connection, message)
+                        except OSError as error:
+                            print(f"[warn] USB write failed: {error}. Reconnect the device and rerun.", file=sys.stderr, flush=True)
+                            return 1
                     continue
                 try:
                     message = json.loads(raw_line)
                 except json.JSONDecodeError as error:
                     print(f"Invalid JSON: {error}", file=sys.stderr, flush=True)
                     continue
-                send_json(connection, message)
+                try:
+                    send_json(connection, message)
+                except OSError as error:
+                    print(f"[warn] USB write failed: {error}. Reconnect the device and rerun.", file=sys.stderr, flush=True)
+                    return 1
 
 
 def main() -> int:
@@ -479,6 +687,26 @@ def main() -> int:
     parser.add_argument("--codex-approval-policy", default="on-request",
                         choices=("untrusted", "on-failure", "on-request",
                                  "never"))
+    parser.add_argument("--trae", action="store_true",
+                        help="pipe every device-side @passport frame through "
+                             "tools/trae_adapter.py; requires Trae CN (or Trae) "
+                             "to be installed and running")
+    parser.add_argument("--trae-cwd", default=None,
+                        help="working directory forwarded to trae-cn chat "
+                             "(defaults to the current shell cwd)")
+    parser.add_argument("--trae-binary", default=None,
+                        help="explicit path to trae-cn / trae; auto-detected "
+                             "from /Applications/Trae*.app when omitted")
+    parser.add_argument("--trae-mode", default="agent",
+                        help="trae chat mode (ask / edit / agent / custom id); "
+                             "defaults to agent")
+    parser.add_argument(
+        "--stt-command", default=None,
+        help="command that transcribes a temporary PCM16 WAV and prints plain "
+             "text to stdout; include {wav} where the WAV path belongs")
+    parser.add_argument(
+        "--stt-timeout", type=float, default=60.0,
+        help="maximum seconds for one --stt-command invocation (default: 60)")
     parser.add_argument("--nfc-relay-port", type=int, default=0,
                         help="if non-zero, start an HTTP relay endpoint that "
                              "phones POST NFC UIDs to; sends validated "
@@ -487,15 +715,41 @@ def main() -> int:
                         help="bind address for the NFC relay (defaults to "
                              "loopback; use 0.0.0.0 only on a trusted network)")
     args = parser.parse_args()
-    pipeline: CodexPipeline | None = None
+    if args.codex and args.trae:
+        print("Error: --codex and --trae are mutually exclusive; the wire "
+              "contract routes a Passport frame to exactly one IDE at a time.",
+              file=sys.stderr)
+        return 2
+    if args.stt_command and not (args.codex or args.trae):
+        print("Error: --stt-command requires --codex or --trae.",
+              file=sys.stderr)
+        return 2
+    pipeline: CodexPipeline | TraePipeline | None = None
+    transcriber: Any | None = None
     relay: NfcRelayServer | None = None
     nfc_outbox: queue.Queue[dict[str, Any]] | None = None
+    if args.stt_command:
+        try:
+            from passport_stt import VoiceTranscriber
+            transcriber = VoiceTranscriber(
+                shlex.split(args.stt_command), timeout=args.stt_timeout)
+        except (ImportError, ValueError) as error:
+            print(f"Error: invalid STT configuration: {error}", file=sys.stderr)
+            return 2
     if args.codex:
         pipeline = CodexPipeline(
             cwd=args.codex_cwd or os.getcwd(),
             model=args.codex_model,
             sandbox=args.codex_sandbox,
             approval_policy=args.codex_approval_policy,
+            transcriber=transcriber,
+        )
+    elif args.trae:
+        pipeline = TraePipeline(
+            cwd=args.trae_cwd or os.getcwd(),
+            binary=args.trae_binary,
+            mode=args.trae_mode,
+            transcriber=transcriber,
         )
     if args.nfc_relay_port:
         nfc_outbox = queue.Queue()

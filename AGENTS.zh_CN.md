@@ -46,9 +46,10 @@
 ./tools/validate.sh --static    # 仓库检查 + host tests
 ./tools/validate.sh --firmware  # ESP-IDF 构建 + 合并镜像验证
 ./tools/validate.sh             # 完整门禁
+./tools/validate.sh --preflash  # 每次实机烧录前强制执行
 ```
 
-完整门禁要求已激活 ESP-IDF 5.5.3 环境。不得把编译成功描述成硬件验证成功。最终交付必须分别报告：
+完整门禁要求已激活 ESP-IDF 5.5.3 环境。不得把编译成功描述成硬件验证成功。任何实机烧录——包括空板初始化、完整刷新、硬件验收——之前都必须先跑 `./tools/validate.sh --preflash`。`--preflash` 会重跑完整门禁，并校验 `build/FoloToy-AI-Passport-full.bin` 是本次运行的新鲜产物；使用旧固件视为硬失败。最终交付必须分别报告：
 
 ```text
 Build: PASS / FAIL / NOT RUN
