@@ -1,223 +1,205 @@
 **English** · [简体中文](/docs/README.zh_CN.md)
 
-<h1 align="center">FoloToy AI PASSPORT</h1>
+<h1 align="center">AI Passport</h1>
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="../assets/images/logo-wordmark-dark.png">
-    <img src="../assets/images/logo-wordmark.png" alt="FoloToy wordmark" width="128">
+    <img src="../assets/images/logo-wordmark.png" alt="AI Passport wordmark" width="180">
   </picture>
 </p>
 
 <p align="center">
-  <strong>Wear it. Flash it. Make it anything.</strong><br>
-  Simple and open. Anyone can build.
+  <strong>Bring IDE context into the physical world.</strong><br>
+  One card selects capability, one screen confirms scope, and one companion keeps the state visible.
 </p>
 
 <p align="center">
-  <a href="/docs/README.md"><img src="https://img.shields.io/badge/Open-firmware-14b8a6?style=flat-square" alt="Open firmware"></a>
-  <a href="/docs/README.md"><img src="https://img.shields.io/badge/Wearable-AI-2563eb?style=flat-square" alt="Wearable AI"></a>
-  <a href="/docs/development/ai-guide.md"><img src="https://img.shields.io/badge/Built-for_makers-f97316?style=flat-square" alt="Built for makers"></a>
-  <a href="/LICENSE"><img src="https://img.shields.io/badge/License-MIT-64748b?style=flat-square" alt="MIT License"></a>
-</p>
-
-<p align="center">
-  <a href="https://ai-passport.folotoy.cn/en/">Website</a> ·
-  <a href="#start-development-with-one-requirement">Start building</a> ·
-  <a href="/docs/reference/README.md">Community projects</a> ·
-  <a href="#documentation-index">Documentation</a>
+  <a href="#the-concept">Concept</a> ·
+  <a href="#how-one-card-works">User flow</a> ·
+  <a href="#current-implementation">Implementation</a> ·
+  <a href="#start-developing">Development</a>
 </p>
 
 ---
 
-**FoloToy AI Passport** is an open wearable AI platform made for people to shape,
-remix, and create. Start with a simple idea, build your own experience, and make
-it anything—from a pocket companion to something no one has imagined yet.
+## The concept
+
+AI Passport is a physical interface for local IDE workflows. It does not shrink a
+chat window onto a small display. It turns working context into state that can be
+touched, selected, and confirmed:
+
+- **Writable NFC Skill cards** select an IDE, mode, and bounded Skill reference.
+  They do not contain credentials, local paths, prompts, or executable commands.
+- **Passport Host Service** runs on the local PC. It recognizes cards, validates
+  records, discovers local capabilities, selects IDE sessions, and orchestrates work.
+- **Passport Device Service Core** runs on the ESP32-C3. It displays resolved state
+  and reports physical input; it never installs or executes a Skill.
+- **Pixel companions** express task progress, approval scope, offline retention,
+  multi-session state, battery, and automatic PC-side companion synchronization.
+
+The card is the entry point, the Host Service is the trust boundary, and the
+device is the feedback and confirmation layer. Every card input goes through the
+same parser and policy path before an IDE can receive an execution request.
 
 <p align="center">
-  <img src="../assets/images/home.jpg" alt="FoloToy AI Passport wearable device shown from the front, side, and back." width="100%">
+  <img src="../assets/images/passport-ui-v2/01-overview.zh.png" alt="AI Passport pixel UI overview showing idle companion, NFC scan, ready card, card stack, and task progress" width="100%">
 </p>
 
-| Open and remixable | Easy to start | Yours to create |
-| --- | --- | --- |
-| Open firmware and reusable examples give you room to shape your own experience. | Start from an idea and follow clear guides to make it real, even if this is your first build. | Make a companion, a tool, a game—or anything you can imagine. |
+<p align="center"><sub>240 × 320 pixel UI overview: tap a card, wake the companion, read the card, and confirm the task.</sub></p>
 
-## Find your starting point
+## How one card works
 
-| I want to… | Start here |
-| --- | --- |
-| Use the device or try an official play | [Getting started](https://ai-passport.folotoy.cn/guides/getting-started/) · [Official plays](https://ai-passport.folotoy.cn/plays/) |
-| Build a custom application with AI | [Agent instructions](../AGENTS.md) · [AI development guide](development/ai-guide.md) · [Required skills](../skills/README.md) |
-| Prepare my environment and build firmware | [Environment setup](development/engineering/environment-setup.md) · [Build and test](development/engineering/build-and-test.md) |
-| Explore the board or contribute | [Hardware guide](hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.md) · [Contributing](../.github/CONTRIBUTING.md) |
-
-> [!IMPORTANT]
-> `main` is a minimal, runnable **hardware-test baseline**, not a finished application.
-> Derivative applications must design their own UI; the current demo test menu and
-> screens must not be reused. BSP APIs and non-UI logic remain reusable.
-
-## Start development with one requirement
-
-1. Open the repository in your AI coding tool and have it read [`AGENTS.md`](../AGENTS.md).
-2. Let it check and install the [five required skills](../skills/README.md), with any permissions your environment requires.
-3. Describe what you want to build. Start from `main` on a new `feature/*` branch.
-
-Copy this prompt and adapt it to your idea:
+The current V1 record is an NDEF Text payload that can be written with the free
+edition of NFC Tools:
 
 ```text
-Build an offline habit-tracking application for FoloToy AI Passport.
-Use the three physical buttons and the 240×320 display, and preserve records across power loss.
-Start from `main`, create a `feature/*` branch, and develop the application there.
-Follow AGENTS.md and docs/hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.md.
-Inspect relevant demo branches and docs/reference/ application archives first.
+aip:1;i=codex;m=agent;s=review
+```
+
+The card does not carry the Skill implementation. Host Service resolves `i`, `m`,
+and `s` against an installed IDE adapter, supported mode, and local Skill. Missing,
+duplicate, oversized, or unsupported fields become explicit bounded error states.
+
+```text
+Writable Type 2 card
+    ↓
+Passport Host Service discovers local IDEs and Skills
+    ↓
+Configurator generates the canonical aip:1 text
+    ↓
+Android NFC Tools Free writes and reads the text back
+    ↓
+Host Service validates, resolves capabilities, and selects a session
+    ↓
+Passport displays progress and approval scope; physical buttons confirm decisions
+```
+
+<p align="center">
+  <img src="../assets/images/nfc-fan-demo/nfc-fan-card-concept-v1.png" alt="Physical AI Passport NFC card concept showing cards, NFC coil, magnetic structure, and multi-card configuration" width="100%">
+</p>
+
+<p align="center"><sub>Physical card concept: the card triggers context; Host Service and Passport resolve it safely.</sub></p>
+
+### V1 and V2 boundaries
+
+| Version | Responsibility | Explicit non-goals |
+| --- | --- | --- |
+| V1 | Installed local Skills, manual writing, strict parsing, local testing, and IDE dispatch | No silent remote installation; no full prompt or command stored on the card |
+| V2 direction | Immutable GitHub manifest revisions, trust-policy staging, validation, and registration | An untrusted card never silently downloads, executes, or receives credentials |
+
+See the [writable NFC Skill card design](development/nfc-skill-card-design.md) for
+the full schema and security boundary.
+
+## What appears on the device
+
+Passport is a prioritized physical state layer rather than a log viewer:
+
+| Situation | Device response |
+| --- | --- |
+| Card tap | Scan line, single-card dwell, and offset card stack; invalid records show a protocol error |
+| Task | Companion, task title, progress, and current session; a disconnect retains the last trusted state |
+| Approval | Operation card with action, scope, source, and paginated details |
+| Session | Long-press Up opens the picker; switching stays pending until the host confirms |
+| Voice | The route is captured at start; releasing the confirmation key stops recording without retargeting |
+| Companion | Host Service detects a PC-side change and syncs it in idle chunks; the device has no manual pet control |
+| Battery | Four-cell pixel battery; unknown readings show a question mark rather than pretending to be empty |
+
+<p align="center">
+  <img src="../assets/images/passport-ui-v2/03-overview.zh.png" alt="AI Passport pixel UI overview showing session selection, session switching, and automatic PC companion synchronization" width="100%">
+</p>
+
+<p align="center"><sub>Multi-session and companion synchronization: task, voice, and approval remain tied to one IDE session.</sub></p>
+
+<p align="center">
+  <img src="../assets/images/passport-ui-v2/05-invalid-card.zh.png" alt="AI Passport pixel UI showing an invalid NFC card warning" width="320">
+</p>
+
+<p align="center"><sub>An invalid card does not start an IDE or change the current session.</sub></p>
+
+## Current implementation
+
+The current branch contains the main Passport Service v2 path:
+
+- Exact Codex app-server thread/session routing and a bounded session catalog;
+- Approval operation cards, details, per-request decisions, and receipts;
+- 240 × 320 pixel UI, graphical battery, card stack, and offline retention;
+- Voice route snapshots that prevent PCM delivery to the wrong conversation;
+- PC companion discovery, 32 × 32 quantization, SHA-256 verification, and idle chunk transfer;
+- A read-only Trae fallback and protocol 1 compatibility path;
+- A design baseline for writable NFC Skill cards, currently bounded to V1 manual-write validation.
+
+<p align="center">
+  <img src="../assets/images/passport-ui-v2/pet-sync-flow.zh.png" alt="AI Passport flow showing PC companion detection, chunk transfer, and atomic replacement" width="100%">
+</p>
+
+Read the authoritative status, protocol, and UI documents:
+
+- [Passport Service status](development/passport-service-status.md)
+- [Passport v2 protocol](development/passport-v2-protocol.md)
+- [Passport pixel companion UI design](development/passport-pixel-ui-design.md)
+- [Writable NFC Skill card design](development/nfc-skill-card-design.md)
+
+## Start developing
+
+### Read the boundaries first
+
+1. Read [`AGENTS.md`](../AGENTS.md) and the [AI development guide](development/ai-guide.md).
+2. Check and install the five required skills: `passport-develop`, `passport-setup`,
+   `passport-build`, `passport-device-test`, and `passport-debug`.
+3. Use the [hardware guide](hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.md) and
+   [`components/bsp/include/bsp_pins.h`](../components/bsp/include/bsp_pins.h) as the
+   sources of truth for board facts.
+4. Keep application pages, state machines, and animation in `main`; keep reusable
+   board logic in `components/bsp`.
+5. Redesign application UI instead of reusing the hardware-test menu as a product.
+
+### Start with one requirement
+
+Use this prompt as a starting point and replace the product details:
+
+```text
+Build an offline habit-tracking application for AI Passport.
+Use the 240 × 320 display and three physical buttons, and persist records across reboot.
+Start from main on a feature/* branch after reading AGENTS.md and the hardware guide.
 Keep hardware logic in components/bsp and application logic in main.
-Deliver a runnable implementation with tests; report build results,
-unexecuted device checks, and on-device acceptance steps separately.
-Redesign the application's UI; do not use the current demo test menu or screens.
+Redesign the application screens; do not reuse the hardware-test menu.
+Run host tests and firmware validation, and report Build, Host tests, Device tests,
+and remaining unverified hardware checks separately.
 ```
 
-Before starting, check [`docs/reference/`](reference/README.md) for an existing or
-reference application and previously recorded, reusable experience, and the demo
-branches. See what is already built and reusable.
-
-<details>
-<summary><strong>Write a clearer requirement</strong> — pages, controls, data, and acceptance</summary>
-
-The more specific the requirement, the more likely the assistant is to implement it correctly in one pass. Useful details include:
-
-- User flow: what each page displays and what short press, double press, and long press do for each button.
-- State and data: whether the application needs timing, persistence across power loss, networking, recording, or communication with a computer.
-- Experience goals: fonts, colors, animation, sound, response time, and error states.
-- Constraints: application navigation and controls, permitted dependencies, and Flash/data usage. The baseline test menu is not an application UI option.
-- Acceptance criteria: which behaviors require automated tests and which must be observed on real hardware.
-
-When details are omitted, the assistant may choose conservative defaults that do not change the product direction, but it must list those assumptions in the delivery. Decisions involving new wiring, electrical safety, board revisions, or irreversible data formats require confirmation first.
-
-</details>
-
-> [!NOTE]
-> A successful build is not hardware validation. Test the application on a real
-> device after implementation; flashing requires your approval. Deliver a verified
-> merged `full.bin` for flashing at `0x0`. No original-firmware backup is required,
-> but a merged flash may reset stored data. See the [flashing policy](development/engineering/firmware-layout.md#flashing-and-stored-data).
-
-## Demo branches are design cases, not a feature pile
-
-Each `demo/*` branch evolves the baseline into an independent application. The branches demonstrate how specific problems were solved. New applications should normally branch from `main` and consult relevant examples instead of merging multiple demos wholesale.
-
-The menu and `demo_*.c` pages on `main` are hardware-capability tests, not an application UI. Every derivative application must redesign and implement its own screens and interaction flow; using the current test menu, screens, or visual shell is prohibited. Renaming or recoloring them does not satisfy this requirement. BSP APIs, ordinary LVGL widgets, lifecycle patterns, and isolated logic may still be reused. See the [mandatory UI redesign rule](development/ai-guide.md#mandatory-ui-redesign-for-derivative-applications); maintenance of the baseline hardware-test demo itself is a separate task.
-
-| Branch | Application | Patterns worth reusing |
-| --- | --- | --- |
-| `demo/stopwatch` | Stopwatch | Minimal timer application, separation of pure logic from LVGL, host-side logic tests |
-| `demo/cat-themed-pomodoro-timer` | Cat-themed Pomodoro timer | Monotonic time, pause/resume, NVS persistence, a detailed PRD, and a state model |
-| `demo/rock-paper-scissors` | Rock paper scissors | RGB565 image assets, asset-generation scripts, and Flash resource tradeoffs |
-| `demo/tetris-game` | Three-button Tetris | Real-time game loop, low-latency `PRESS` input, partial refresh, a pure game model, audio, and microphone interaction |
-| `demo/claude-buddy-port` | Desktop AI hardware companion | Replacing the demo menu with a complete application, encrypted BLE, protocol parsing, state reduction, task communication, and extensive host tests |
-
-<details>
-<summary><strong>Explore a demo and create your application branch</strong></summary>
-
-Inspect an example without switching the current working tree:
+### Build and validate
 
 ```bash
-git branch -r --list 'origin/demo/*'
-git diff main...origin/demo/tetris-game -- main components tests
-git show origin/demo/tetris-game:main/demo_tetris.c
+./tools/validate.sh --static
+./tools/validate.sh --firmware
+./tools/validate.sh
 ```
 
-Start a new application. This repository hosts several independent projects on one baseline: after starting from `main`, create a `feature/*` branch and develop the application there — do not develop directly on `main`. Each project's final branch is `feature/*` (e.g. `feature/my-passport-app`), kept separate so `main` stays a clean upstream baseline and the projects do not entangle.
+A passing build is not hardware acceptance. Before flashing, run
+`./tools/validate.sh --preflash`, confirm the target device and firmware, and
+review the storage impact.
 
-```bash
-git switch main
-git switch -c feature/my-passport-app
-```
+## Hardware baseline
 
-Example branches may change the same menu, configuration, or driver in incompatible ways. Understand the differences before extracting a state model, asset pipeline, or concurrency pattern. Code appearing in an example branch is not automatically part of the current `main` BSP contract.
+**ESP32-C3 · 8 MB Flash · no PSRAM · 240 × 320 RGB565 · three physical buttons**
 
-</details>
+The default partition table contains NVS, PHY data, and one factory application
+using the remaining space. Use [`bsp_pins.h`](../components/bsp/include/bsp_pins.h)
+and the [hardware guide](hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.md) for
+display, buttons, audio, battery, shared I2C, Wi-Fi scan, and BLE boundaries.
 
-## Hardware capability contract
+## Documentation
 
-**ESP32-C3 · 8 MB Flash · no PSRAM · 240 × 320 display · three physical buttons**
-
-The default layout contains only **NVS, PHY data, and one factory application**
-spanning the remaining Flash. User firmware may use another valid 8 MB layout.
-See [firmware layout](development/engineering/firmware-layout.md).
-
-<details>
-<summary><strong>Expand the capability table</strong> — interfaces, limits, and implementation details</summary>
-
-The table below describes the application capabilities implemented by the current `main` branch. It is not a list of everything that might be possible according to the chip datasheet.
-
-| Capability | Confirmed implementation | Application interface | Boundaries that must be respected |
-| --- | --- | --- | --- |
-| Display | ST7789P3, 240 × 320 portrait RGB565, SPI2 at 40 MHz; LEDC backlight | `bsp_display_*`, `bsp_lvgl_*` | The ESP32-C3 has no PSRAM; the current design uses a small single DMA buffer; the BSP exposes no LCD MISO, touch, or TE interface |
-| Input | `UP`, `DOWN`, and `OK` share an ADC resistor ladder on GPIO0 | `bsp_button_init()`, `bsp_button_read_mv()` | Callbacks run in the button component task and must not block; do not create a second ADC1 unit |
-| Audio | ES8311 with full-duplex PCM over I2S0, supporting playback, microphone capture, and software suspend/resume | `bsp_audio_*` | PCM reads and writes block and belong in a worker task; stop PCM I/O before codec sleep; format changes must retain the BSP close/open sequence |
-| Battery | CW2017 state-of-charge and voltage readings | `bsp_battery_*` | This capability is optional at runtime; accuracy depends on the cell and battery profile and is not equivalent to a calibrated result |
-| Wi-Fi | On-demand 2.4 GHz STA scan demo | `main/demo_wifi.c` | Scans only; it does not connect, store credentials, or validate antenna/RF performance |
-| Bluetooth LE | On-demand non-connectable NimBLE advertising as `FoloPassport` | `main/demo_ble.c` | ESP32-C3 does not support Bluetooth Classic; radio range, coexistence, and power draw require device measurements |
-| Low power | Two-second light sleep and five-second deep sleep, both with RTC timer wakeup | `main/demo_low_power.c` | Both modes force and verify ES8311 suspend; light sleep restores audio, while deep sleep first suspends CW2017, releases I2S/shared-I2C pins, sleeps and holds the LCD pins, then restarts on wake; the current demo exposes RTC timer wake only |
-| Shared bus | ES8311 and CW2017 share I2C0 | `bsp_i2c_*` | Every device must reuse the bus owned by the BSP; do not create another bus on the same port for scanning or a new device |
-| Logging and flashing | Native ESP32-C3 USB Serial/JTAG | ESP-IDF console | GPIO18/19 are reserved for USB; the default UART0 TX on GPIO21 conflicts with the backlight |
-
-All pins, addresses, panel parameters, and button voltage windows are defined only in [`components/bsp/include/bsp_pins.h`](../components/bsp/include/bsp_pins.h). Application code must not duplicate these constants. See the [AI Hardware Development Guide](hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.md) for the complete pin map, panel initialization, ADC thresholds, I2C addressing rules, audio clocks, and memory details.
-
-Applications may also use ESP-IDF timers, FreeRTOS tasks, and internal Flash/NVS; the Pomodoro branch contains an NVS example. Wi-Fi and Bluetooth LE remain ESP-IDF application services rather than BSP APIs: their menu pages initialize each stack only while open and release it on exit. `demo/claude-buddy-port` remains a fuller BLE application architecture reference, not a substitute for measuring the current board's antenna, RF performance, power consumption, and coexistence behavior.
-
-### Capabilities outside the current contract
-
-The public firmware contract is limited to the interfaces listed above. Do not infer additional board interfaces from the ESP32-C3 feature list. New hardware interfaces require an explicit BSP definition and on-device acceptance criteria.
-
-</details>
-
-## Project structure
-
-Board support lives in `components/bsp`; application pages, state, and tasks live
-in `main`. Keep that boundary when building your own firmware.
-
-<details>
-<summary><strong>Browse the repository map</strong></summary>
-
-```text
-components/bsp/include/  Public BSP APIs and bsp_pins.h hardware facts
-components/bsp/src/      Display, button, audio, battery, and shared-I2C implementations
-main/                    Minimal menu, LVGL UI, and independent hardware demo pages
-tests/                   Lightweight logic tests that can run without hardware
-tools/                   Shared local/CI validation and firmware verification scripts
-docs/                    Project docs, changelog, engineering/contribution rules, and design references
-.github/                 GitHub community files, PR template, issue forms, and CI workflows
-sdkconfig.defaults       ESP32-C3, USB console, Flash, and LVGL defaults
-partitions.csv           Minimal default: NVS, PHY data, and one factory application
-dependencies.lock        Reproducible ESP-IDF Managed Component resolution
-AGENTS.md                Mandatory AI-agent entry point (paired with AGENTS.zh_CN.md)
-CLAUDE.md                Claude Code pointer to AGENTS.md (paired Chinese version)
-LICENSE                  Repository license
-```
-
-</details>
-
-## Documentation index
-
-Engineering and contribution guides define the rules; examples and archives
-provide reference material. Choose the entry that matches your task.
-
-| Resource | What you will find |
+| Topic | Documentation |
 | --- | --- |
-| [Development](development/README.md) | AI workflow, engineering conventions, CI, and release guidance |
-| [AI skills](../skills/README.md) | Development, environment setup, builds, device testing, and debugging |
-| [Hardware](hardware-design/README.md) | Board facts, interface boundaries, acceptance checklists, and troubleshooting |
-| [Chinese fonts](development/engineering/lvgl-chinese-fonts.md) | Glyph coverage, widget font selection, and blank-text troubleshooting |
-| [Wi-Fi provisioning](development/engineering/wifi-provisioning.md) | Bluetooth provisioning reference and companion mini program |
-| [Community projects and experience](reference/README.md) | Playbooks and reusable knowledge under `docs/reference/<username>/` |
-| [Contributing](contribution/README.md) | Documentation, commits, and pull-request conventions |
-| [Brand assets](brand/README.md) | Product visual references and [brand language](brand/brand-and-product.md) |
-| [Fork guide](fork-guide.md) · [Changelog](CHANGELOG.md) | Downstream workflows and release history |
-| [Earliest idea](reference/earliest-idea/README.md) | The original AI Passport concept and retained interaction direction |
+| Development rules and skills | [Development index](development/README.md) · [AI skills](../skills/README.md) |
+| Host and protocols | [Passport v2 protocol](development/passport-v2-protocol.md) · [NFC Skill card](development/nfc-skill-card-design.md) |
+| UI and assets | [Pixel UI design](development/passport-pixel-ui-design.md) · [Asset guide](../assets/README.md) |
+| Hardware and build | [Hardware guide](hardware-design/AI_HARDWARE_DEVELOPMENT_GUIDE.md) · [Build and test](development/engineering/build-and-test.md) |
+| Contribution and license | [Contributing](../.github/CONTRIBUTING.md) · [MIT License](../LICENSE) |
 
 ---
 
-[Contribute](../.github/CONTRIBUTING.md) · [Get help](../.github/SUPPORT.md) · [Code of conduct](../.github/CODE_OF_CONDUCT.md) · [Security](../.github/SECURITY.md) · [MIT License](../LICENSE)
-
-AI agents: start with [`AGENTS.md`](../AGENTS.md) and follow its task-specific routing.
+AI Passport is not a desktop window moved onto a device. It makes context,
+boundaries, and decisions clear, physical, and verifiable.
