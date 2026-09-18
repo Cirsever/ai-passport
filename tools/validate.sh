@@ -115,10 +115,14 @@ run_static_checks() {
         tests/test_bsp_audio_recovery.c components/bsp/src/bsp_es8311_sleep_check.c \
         -o "${test_dir}/test_bsp_audio_recovery"
     "${test_dir}/test_bsp_audio_recovery"
+    local demo_gc_sections=(-Wl,--gc-sections)
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        demo_gc_sections=(-Wl,-dead_strip)
+    fi
     for demo in audio low_power ble wifi; do
         "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
             -ffunction-sections -fdata-sections -Itests/demo_stubs -Imain \
-            "tests/test_demo_${demo}_runtime.c" -Wl,--gc-sections \
+            "tests/test_demo_${demo}_runtime.c" "${demo_gc_sections[@]}" \
             -o "${test_dir}/test_demo_${demo}_runtime"
         "${test_dir}/test_demo_${demo}_runtime"
     done
