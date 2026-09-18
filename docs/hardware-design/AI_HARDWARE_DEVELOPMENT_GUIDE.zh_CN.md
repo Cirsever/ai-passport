@@ -12,7 +12,7 @@
 
 - 适用对象：本仓库实现的 ESP32-C3 FoloToy AI Passport 板级映射。
 - 产品规格见 [specifications.zh_CN.md](specifications.zh_CN.md)；固件行为以 `bsp_pins.h`、BSP 实现、`sdkconfig.defaults`、`partitions.csv` 与 demo 代码为准。
-- 代码复核日期：2026-08-26。
+- 代码复核日期：2026-09-14。
 
 ## 1. 开始任何任务前
 
@@ -119,11 +119,13 @@ app_main
 - `bsp_battery.h`：SOC 与电压。
 - `bsp_pins.h`：硬件常量，不承载业务逻辑。
 
-显示、按键、音频和 LVGL 成功初始化后可重复调用。显示、按键与音频在 BSP 中途失败时会释放本次取得的资源；LVGL display 注册失败时会 deinit port。调用方修正故障后可以重试；若底层回滚本身失败，会明确报错并拒绝覆盖仍存活的句柄。当前没有统一 deinit API，不要假设可以在运行时任意销毁和重建总线/驱动。
+显示、按键、音频和 LVGL 成功初始化后可重复调用。显示、按键与音频在 BSP 中途失败时会释放本次取得的资源；LVGL display/回调注册失败时只移除 display，保留已初始化的 port 供重试。port 自身初始化失败需要重启，因为依赖的异步清理没有公开的完成握手。其他底层回滚失败也会明确报错并拒绝覆盖仍存活的句柄。BSP 初始化由单一所有者串行执行；当前没有统一 deinit API，不要假设可以在运行时任意销毁和重建总线/驱动。
 
-按键回调运行在共享 `esp_timer` 任务中，只负责将输入加入队列并立即返回。demo 生命周期任务负责页面导航，并在不持有 LVGL 锁时启动或停止慢服务。退出页面时先以有界等待停止 producer，再持锁删除定时器和 UI 对象。音频与 light-sleep 工作任务使用协作取消和明确的退出握手，不再强制删除仍可能访问外设或 UI 的任务。低功耗工作任务会在两种睡眠前暂停 ES8311，并在 light sleep 返回后恢复；deep sleep 唤醒会重启应用并走正常 BSP 初始化流程。
+按键回调运行在共享 `esp_timer` 任务中，只负责将输入加入队列并立即返回。demo 生命周期任务负责页面导航，并在不持有 LVGL 锁时启动或停止慢服务。退出页面时先以有界等待停止 producer，再持锁删除定时器和 UI 对象。音频与 light-sleep 工作任务使用协作取消和明确的退出握手，不再强制删除仍可能访问外设或 UI 的任务。低功耗工作任务会在两种睡眠前强制暂停 ES8311 并回读校验，在 light sleep 返回后恢复。deep sleep 时则先暂停并校验 CW2017，再强制暂停 ES8311，停止和释放 I2S，释放共享 I2C 引脚，阻止后续 LVGL 刷屏，休眠 LCD 并保持安全引脚电平，最后进入 deep sleep。单个外设失败会记录日志，但不会让系统卡在唤醒状态；终端引脚释放后若意外返回则重启。deep sleep 唤醒同样会重启应用并走正常 BSP 初始化流程。
 
 Wi-Fi、NimBLE 和 light/deep sleep 直接使用 ESP-IDF API，不属于板级 BSP。`demo_radio.c` 只管理 NVS、`esp_netif` 和默认 event loop 这些应用级共享前置。Wi-Fi 和 BLE 页在页面创建后初始化高内存占用的无线栈，在删除页面前停止并释放；不自动抹除已有 NVS 数据来掩盖分区错误。deep sleep 会按 ESP32-C3 语义重启应用，示例用 RTC slow memory 记录唤醒次数。
+
+音频、低功耗和 BLE 工作任务在最后一次共享状态访问之后才发送完成确认，随后挂起，由生命周期所有者删除。停止超时后保留任务句柄和完成信号量，供后续重试；不能让旧任务清空新任务的句柄。Wi-Fi 分别检查 netif 创建、驱动绑定和事件注册结果；BLE 检查 host 任务创建结果，没有创建任务时直接清理，不调用 host-stop。不能依赖内部断言退出或忽略任务创建结果的 SDK 辅助函数处理内存不足。
 
 ## 5. 显示与 LVGL
 
@@ -141,6 +143,10 @@ Wi-Fi、NimBLE 和 light/deep sleep 直接使用 ESP-IDF API，不属于板级 B
 
 ESP32-C3 无 PSRAM。当前 LVGL 显示缓冲为 `240 × 20` 像素的单 DMA 缓冲，RGB565 约 9.6 KB；`sdkconfig.defaults` 的 LVGL 内部池为 24 KB。不要直接改为大行数双缓冲，也不要扩大 UI 内存池而不检查内部 RAM、最大连续堆和 I2S DMA 初始化。
 
+LVGL 最终输出的 RGB565 刷新区域会统一套用 30 px 圆角遮罩，因此正常刷新和页面切换期间，圆角之外的四角区域都会保持纯黑。遮罩直接作用于局部绘制缓冲，不使用根 screen 的 `clip_corner`；全屏圆角裁剪需要 ARGB 中间图层，在本项目无 PSRAM、LVGL 内存池仅 24 KB 的条件下可能耗尽内存。该行为统一放在显示接入层，不应在各页面重复绘制四角装饰。
+
+终端 deep sleep 前，应先阻止新页面任务，并持有 LVGL 锁等待当前 flush 完成。`bsp_display_prepare_deep_sleep()` 随后发送关闭显示和 Sleep In，将背光 PWM 停在低电平，设置 CS 为高电平，SCLK/MOSI/DC/背光为低电平，开启单引脚 hold 及 ESP32-C3 全局 deep-sleep hold。唤醒后 `bsp_display_init()` 会在 SPI 或 LEDC 接管前解除全局与单引脚 hold。该终端接口不是可恢复的息屏操作，调用后必须立即进入 deep sleep 或重启。
+
 LVGL 非线程安全：
 
 - LVGL 定时器回调运行在 LVGL 上下文，可直接操作对象。
@@ -151,13 +157,15 @@ LVGL 非线程安全：
 
 `swap_bytes=true` 是必要配置：LVGL 产生小端 RGB565，而 LCD 的 SPI 数据需要高字节在前。颜色异常时应先核对该标志、RGB/BGR 顺序、反色和面板序列，不要一次修改多个变量。
 
+显示和圆角回调必须在同一个可递归 LVGL port 锁内注册，先于第一帧 flush。注册失败后不能留下未遮罩的显示，也不能重新初始化旧任务可能仍在运行的 port。
+
 ## 6. ADC 三按键
 
 三个物理按键共享 GPIO0：3.3 V 经外部 10 kΩ 上拉到 ADC 节点，按键按下后分别通过 0 Ω、1 kΩ、2.2 kΩ 接地。
 
 | 状态 | 理论电压 | 当前识别窗口 |
 | --- | ---: | ---: |
-| UP | 约 0 mV | `[0, 150)` mV（边界语义最终以 button 组件实现为准） |
+| UP | 约 0 mV | `[0, 150)` mV |
 | DOWN | 约 300 mV | `[150, 447)` mV |
 | OK | 约 595 mV | `[447, 1900)` mV |
 | 松开 | 约 3300 mV | 不属于任何按键窗口 |
@@ -166,9 +174,9 @@ LVGL 非线程安全：
 
 实现上的关键限制：
 
-- BSP 先创建唯一的 ADC1 oneshot unit，再把同一句柄交给三个 `iot_button` ADC 设备；`bsp_button_read_mv()` 也复用它。不要为电压显示另建 ADC1 unit。
-- ADC 衰减为 `ADC_ATTEN_DB_12`，必须与依赖的 button 组件内部配置保持一致。升级组件后要重新核对。
-- ADC 校准句柄创建失败不影响按键事件，但 `bsp_button_read_mv()` 返回 `-1`。
+- BSP 拥有唯一的 ADC1 oneshot unit 和校准句柄，通过公开 `iot_button` 驱动接口管理三个静态驱动；`bsp_button_read_mv()` 也复用它们。不要为电压显示另建 ADC1 unit。
+- ADC 衰减为 `ADC_ATTEN_DB_12`，每轮轮询三个按键复用一次平均采样，半开窗口避免边界同时命中两个键。
+- 校准创建失败会中止初始化并回滚；读取或换算失败视为未按下，而不是把无效电压作为 0 mV 触发 UP。BSP 不使用依赖的 ADC 索引注册表，避免部分分配失败后遗留占用索引、阻止重试。
 - 回调来自 button 组件使用的共享 `esp_timer` 任务，只能入队或执行同等级的有界操作，不能阻塞、录音、播放或访问 UI。
 - 事件包括 PRESS、CLICK、DOUBLE、LONG。应用菜单主要消费 CLICK；页面中的 OK LONG 被全局拦截用于返回。
 
@@ -185,6 +193,7 @@ I2C0 使用 SDA GPIO10、SCL GPIO7。ES8311 地址为 7 bit `0x18`，CW2017 为 
 - `bsp_i2c_scan()` 扫描 0x08–0x77，适合启动诊断；它返回 OK 只表示扫描完成，不表示一定找到设备。
 - CW2017 设备速率明确为 100 kHz。ES8311 控制接口由 `esp_codec_dev` 管理。
 - ES8311 创建控制接口时库 API 要求 8 bit 地址，因此传入 `0x18 << 1`；其他使用 7 bit 地址的 ESP-IDF API 不应照搬此移位。
+- deep sleep 时必须先完成 CW2017 和 ES8311 的写入/回读，再调用 `bsp_i2c_prepare_deep_sleep()`。该终端接口把 SDA/SCL 切换为关闭两种内部上下拉的输入；重启前不得再发起 I2C 事务。板上外部上拉电阻及其静态电流仍是硬件特性。
 
 故障定位顺序：确认 `bsp_i2c_init()` 日志 → 扫描是否看到 0x18/0x63 → 检查供电、地、SDA/SCL 和外部上拉 → 检查地址格式 → 检查是否错误创建了第二条同 port 总线。
 
@@ -205,18 +214,23 @@ MCU 是 I2S master，ES8311 是 slave；I2S0 的 TX/RX 全双工通道共享 MCL
 - `bsp_audio_set_format(hz, bits, ch)` 是使用 PCM 前的必要步骤。
 - `esp_codec_dev_open()` 对已打开设备会直接返回而不重新配置采样率。因此格式变化时必须 close 后再 open；现有 BSP 已处理，不能删掉。
 - close/open 周围的 I2S enable 是为满足驱动内部 disable 状态机，避免 READY 状态报错。
+- 即使 codec-dev 吞掉返回值，也检查底层 I2C/I2S 配置错误。打开或格式切换失败时释放 codec 对象、强制暂停并停止 I2S；重试时重新创建，不能复用半打开或错误 enabled 状态。休眠同样先释放 codec，再执行最终强制寄存器序列；唤醒重建 codec、恢复格式和音量，共享总线和 channel 保留。codec 引用释放失败需要重启，不能假报恢复成功；未恢复前重复休眠保留此前失败结果。
 - 不要在 open 后手写 ES8311 REG01–REG06 时钟分频；驱动已根据采样率和 256×fs MCLK 配置。
 - `no_dac_ref=true` 对单声道麦克风录音是必要的；改为 false 会让读入通道成为 DAC reference，表现为录音恒零。
 - 麦克风模拟输入增益当前为 30 dB；输出音量 API 为 0–100%。增益和音量不是同一个概念。
 - `bsp_audio_read/write` 是阻塞调用，不能放在按键回调或 LVGL 任务中。
 - I2S DMA 当前为 6 个 descriptor、每个 240 frame。更改 DMA 或 LVGL buffer 前必须联合评估内部 RAM。
-- 调用 `bsp_audio_sleep()` 前必须停止所有 PCM 读写。该接口先执行并检查 ES8311 软件 suspend，再关闭 codec 和 I2S 数据通路；若此前从未打开过采样格式，BSP 会先做一次无声的默认格式 open，因为 `esp_codec_dev_close()` 否则会跳过硬件 suspend。
+- 调用 `bsp_audio_sleep()` 前必须停止所有 PCM 读写。该接口通过已打开的控制接口直接执行完整 ES8311 suspend 寄存器序列，不依赖 codec-device opened 标志，因此开机后从未播放也不需无声 open。它会回读 `0x00`、`0x01`、`0x0D`、`0x0E`、`0x12` 和 `0x45`，失败后等待 5 ms 重试一次完整序列，并即使音频从未打开也显式停止两条 I2S channel。
 - light sleep 返回后调用 `bsp_audio_wake()`，以休眠前格式重新打开 codec/I2S 通路。两个接口均为幂等操作；音频子系统不可用时视为无需暂停或恢复。deep sleep 唤醒会重启，改由正常 `bsp_audio_init()` 流程初始化。
-- 软件 suspend 会停止 ES8311 的 ADC/DAC 与时钟，但不会切断芯片物理 3.3 V 供电。由于 `BSP_I2S_PA_CTRL` 为 `-1`，外部功放也不受软件控制；这部分硬件残余待机电流需另行实测。
+- REG0E 仍写入 `0xFF`，但回读只比较 bit6:0，掩码和预期值均为 `0x7F`。读到 `0x7F` 或 `0xFF` 都通过，bit7 读为零不应误判为 suspend 失败。其余五个寄存器继续逐字节完整校验。I2C 错误或参与校验的位不符，重试一次后仍返回失败：Low Power demo 取消 light sleep 并尝试恢复音频；deep sleep 则记录错误并继续终端关闭流程。
+- 只在终端 deep sleep 中，suspend 后调用 `bsp_audio_prepare_deep_sleep()`，使 MCLK、BCLK、WS、DOUT 和 DIN 成为无内部上下拉的高阻输入。不得将该接口用于 light sleep；活动 I2S 引脚路由只会在重启后恢复。
+- 软件 suspend 会停止 ES8311 的 ADC/DAC、模拟路径、麦克风偏置路径、内部时钟、BCLK/LRCK 内部上拉及数字/模拟功能模块，但不会切断芯片物理 3.3 V 供电。由于 `BSP_I2S_PA_CTRL` 为 `-1`，外部功放也不受软件控制；这部分硬件残余待机电流需另行实测。
 
 Audio demo 使用独立 4 KB 栈任务：OK 播放 1 秒 1 kHz 方波，UP 录 3 秒再回放。录音缓冲约 96 KB，是当前最显著的瞬时堆分配，可能因碎片或其他功能增大而失败。新增长录音应优先采用分块流式处理或外部存储，不可假设存在 PSRAM。
 
 Audio demo 的工作任务在 PCM 分块之间检查取消状态，并在页面删除前确认退出；扩展该页面时必须保留这一有界退出握手，不能强制删除阻塞于 codec I/O 的任务。
+
+录音读取失败显示 `recording failed` 并丢弃不完整录音；只有录音和回放均完整成功才显示 `done`。
 
 ### 8.1 切换选项或存档时出现杂音
 
@@ -235,6 +249,7 @@ CW2017 在共享 I2C 地址 0x63。初始化读取 VERSION 确认在线，并检
 - 电压：读 0x02–0x03 的 14 bit 值，换算为 `raw × 312.5 µV`，API 返回 mV。
 - 事务超时当前为 100 ms，设备时钟为 100 kHz。
 - 芯片不应答时初始化返回 `ESP_ERR_NOT_FOUND`，菜单标记失败，但整机继续运行。
+- 终端 deep sleep 前，`bsp_battery_sleep()` 写入 `CW_CONFIG_SLEEP`，等待 5 ms 后回读 CONFIG，只有精确读回睡眠值才接受为成功。失败时重试一次并报告，应用仍继续关闭其余外设。
 
 SOC 准确度取决于电芯与 profile 的匹配程度。本驱动给出的是电量计读数，不等于实验室标定结果。若产品需要准确 SOC，必须取得电芯参数、CW2017 数据手册和供应商 profile，并完成完整充放电验证。
 
@@ -425,11 +440,15 @@ idf.py flash monitor
 
 - USB Serial/JTAG 有稳定启动日志，无重启循环、assert、watchdog 和持续错误。
 - I2C 扫描看到预期的 0x18；装有 CW2017 的板还应看到 0x63。
-- 菜单可用 UP/DOWN 循环导航，OK 单击进入，OK 长按返回。
-- 某个可选外设故障只禁用对应页面，不影响其他功能。
+- 基线测试 demo 中，菜单可用 UP/DOWN 循环导航，OK 单击进入，OK 长按返回；二次开发应用验收自己重新设计的导航和按键交互。
+- 某个可选外设故障只降级依赖它的功能（基线 demo 中为禁用对应测试页面），不影响其他功能。
 - 连续切换页面和反复操作后无堆持续下降、对象悬挂或任务泄漏。
 
 ### 按修改类型追加验收
+
+下表中的菜单操作、页面名称和时长是基线硬件测试示例，不是应用必须沿用的 UI。
+二次开发应用必须遵守[强制 UI 重新设计规则](../development/ai-guide.zh_CN.md#二次开发-ui-强制重新设计)，
+通过自身流程完成适用的硬件检查，不得为了照做测试示例而保留 demo 测试 UI。
 
 | 修改类型 | 必须观察的实机结果 |
 | --- | --- |
@@ -440,7 +459,7 @@ idf.py flash monitor
 | 电池 | 合理 SOC 和 mV、无电量计时正确降级、断续 I2C 的错误恢复表现 |
 | Wi-Fi | 扫描总数和 SSID/RSSI 可见、OK 重扫描、反复进出后仍可扫描 |
 | Bluetooth LE | 手机看到 `FoloPassport`、OK 重启广播、退出后广播消失、反复进出无重启 |
-| light/deep sleep | Low Power 页用 UP/DOWN 选择、OK 执行；确认两种模式前 ES8311 均 suspend；light sleep 约 2 秒后恢复 codec/音频和背光；deep sleep 约 5 秒后重启，页面显示 timer 唤醒与 RTC 保留计数，并确认音频重新初始化后可用 |
+| light/deep sleep | Low Power 页用 UP/DOWN 选择、OK 执行；确认两种模式前 ES8311 回读校验通过；light sleep 约 2 秒后恢复 codec/音频和背光；deep sleep 中确认 CW2017 早于 ES8311、I2S/I2C 进入高阻、LCD 安全电平保持，约 5 秒后定时唤醒保留计数，重新初始化后音频/显示可用；分别测量板级电流 |
 | DMA/内存/UI | build 内存报告、运行时最小堆/最大块、音频与刷屏并发稳定性 |
 
 ## 14. 故障症状速查

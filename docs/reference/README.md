@@ -8,8 +8,8 @@ This area holds reference material for AI Passport development that is not a
 binding requirement: reusable development experience and archived application
 playbooks. These are consulted when developing something new, not enforced as
 rules. Reference is organized by contributing developer's GitHub username: under
-each `reference/<username>/` folder, experience entries are stored as flat files
-and application playbooks as subdirectories.
+each repository-relative `docs/reference/<username>/` folder, experience entries
+are stored as flat files and application playbooks as subdirectories.
 
 The engineering rules themselves live under
 [`../development/`](../development/README.md); the collaboration conventions under
@@ -24,7 +24,7 @@ The engineering rules themselves live under
 - [Audio Compression Trade-offs on ESP32-C3](shinku-chen/audio-compression-trade-offs.md) — how a voice-playback codec was chosen on limited flash (IMA-ADPCM vs Opus vs MP3), with measured capacity and decoder cost.
 - [Post-Release Follow-up for the AI Passport Publishing Flow](shinku-chen/post-release-follow-up.md) — confirm the publish destination, include the data partition in a release, and the consent gates for the post-release tracks.
 - [Display Refresh and Deep-sleep on ESP32-C3 (No PSRAM)](shinku-chen/display-refresh-and-deep-sleep.md) — direct panel refresh of a single image rect, RTC-GPIO deep-sleep wakeup, and the LVGL object-type misuse crash signature.
-- [Shutting Down On-Board Peripherals Before Deep-Sleep](shinku-chen/deep-sleep-peripheral-power-off.md) — power the LCD panel, backlight, codec, and fuel gauge down before deep sleep, the `esp_codec_dev_close()` only-suspends-if-opened trap, and what software cannot fix (always-on PA, regulator).
+- [Shutting Down On-Board Peripherals Before Deep-Sleep](shinku-chen/deep-sleep-peripheral-power-off.md) — verified register shutdown, shared-bus ordering, terminal GPIO states, LCD deep-sleep holds, the `esp_codec_dev_close()` opened-state trap, and remaining hardware loads.
 
 **Application playbooks:**
 
@@ -59,7 +59,7 @@ repository language rule: keep the default `.md` path in English and the paired
 `.zh_CN.md` in Simplified Chinese, aligned in the same change.
 
 An entry is a single `.md` file (with its `.zh_CN.md` peer) stored flat under
-`reference/<username>/` and named after the entry's content summary in
+`docs/reference/<username>/` and named after the entry's content summary in
 lowercase-kebab-case (e.g. `audio-compression-trade-offs.md`), describing the
 topic rather than an opaque timestamp. Each entry is routed before submission:
 general, upstream-benefiting experience goes to the upstream
@@ -68,11 +68,13 @@ general, upstream-benefiting experience goes to the upstream
 
 ## Archiving an application
 
-When an application is published, archive it under `reference/<username>/<app-name>/`
+When an application is published, archive it under the repository-relative
+`docs/reference/<username>/<app-name>/`
 with an AI-generated bilingual functional summary (`README.md` / `.zh_CN.md`) and
 optionally a how-to guide. The archive is **text-only** — record the cover image
 by file name and format only, and do not store the firmware `.bin`. The `plays-archive`
-skill drives the archive and its convention.
+skill drives the archive and its convention. Add the application to this index
+and its Simplified Chinese peer in the same change.
 
 ## Related
 

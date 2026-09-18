@@ -14,6 +14,46 @@
 - 新增、移动或删除任一语言文件时，必须同步处理配对文件和所有索引。
 - `tools/check_repo.py` 与 CI 会拒绝缺少配对文件、缺少切换链接或英文默认页包含中文正文的变更。
 
+### GitHub 社区文档链接
+
+GitHub 还会在文件页面之外展示 `.github/` 中的 `CONTRIBUTING`、`CODE_OF_CONDUCT`、
+`SECURITY` 和 `SUPPORT` 文档。两种语言的切换均须放在第一个非空行、HTML 块之外，
+使用仓库根路径的 Markdown 链接，例如 `[简体中文](/.github/CODE_OF_CONDUCT.zh_CN.md)`；其他仓库内链接也使用
+根路径，例如 `/docs/README.md`。HTML 语言切换中的裸文件名在仓库首页可能丢失
+`.github/` 目录。不要把上游仓库所有者或 `main` 写死在这些文档链接中，根相对
+链接会保留当前仓库与分支。参见 GitHub 的
+[相对链接规则](https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#relative-links)。
+仓库门禁会检查这些社区文档链接；上线后还需从首页和单文件页面实际点击中英文
+双向切换。
+
+## 随仓库引入的第三方文档
+
+把第三方组件复制到仓库时，应保留其上游原始文档。如需豁免其中 Markdown
+的本地链接和双语检查，在 [`tools/check_repo.py`](../../tools/check_repo.py)
+的 `VENDORED_DOC_ROOTS` 中显式登记组件目录。该列表默认为空。例如，引入位于
+`components/vendor_audio` 的组件后，可登记：
+
+```python
+VENDORED_DOC_ROOTS: tuple[str, ...] = (
+    "components/vendor_audio",
+)
+```
+
+登记项必须是已存在的具体组件目录，使用相对仓库根目录的路径和 `/` 分隔符。
+空路径、仓库根目录、绝对路径、`.` 或 `..` 路径段以及符号链接目录均会被拒绝。
+匹配按完整路径段进行，因此此项不会豁免 `components/vendor_audio_extra`。
+链接到登记目录之外的文件也不豁免。不要登记 `components`、`docs` 等包含自有
+内容的大范围目录。
+
+只有登记目录内的上游 Markdown 跳过 `check_markdown_links` 和
+`check_document_languages`。这些文件仍参加正常的仓库扫描：敏感凭证模式、
+未脱敏的设备二维码链接和合并冲突标记仍会导致校验失败。不得通过 `.gitignore`、
+`git_files()` 或 `text_files()` 过滤来实现这些豁免。
+
+组件的上游来源 URL、固定版本或提交、许可证以及本地修改，应记录在豁免目录外、
+由项目维护的中英文配对文档中。项目自己编写的集成说明仍须遵守正常的双语和链接
+规则。添加豁免不要求改写或翻译第三方原始文档。
+
 ## 按任务加载上下文
 
 - 所有任务只强制先读仓库根 `AGENTS.md`。
